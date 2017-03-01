@@ -35,7 +35,7 @@ public class StatisticsSummaryGenerator {
       boolean producer = false;
       TimeProvider timeProvider = TimeProvider.Nano;
       OutputFormat outputFormat = OutputFormat.DETAIL;
-
+      int targetThroughput = 0;
       for (int i = 0; i < args.length; ++i) {
          final String arg = args[i];
          switch (arg) {
@@ -57,6 +57,9 @@ public class StatisticsSummaryGenerator {
             case "--warmup":
                warmupIterations = Integer.parseInt(args[++i]);
                break;
+            case "--target":
+               targetThroughput = Integer.parseInt(args[++i]);
+               break;
             case "--time":
                timeProvider = TimeProvider.valueOf(args[++i]);
                break;
@@ -68,7 +71,7 @@ public class StatisticsSummaryGenerator {
          }
       }
       if (askedForHelp) {
-         final String validArgs = "\"[--producer] --input inputFileName --warmup warmupIterations --runs runs --iterations iterations [--time Nano|Millis] [--format LONG|SHORT|DETAIL]\"";
+         final String validArgs = "\"[--producer] --target targetThroughput --input inputFileName --warmup warmupIterations --runs runs --iterations iterations [--time Nano|Millis] [--format LONG|SHORT|DETAIL]\"";
          System.err.println("valid arguments = " + validArgs);
          if (args.length == 1) {
             return;
@@ -88,25 +91,29 @@ public class StatisticsSummaryGenerator {
          default:
             throw new AssertionError("unsupported case!");
       }
-      final Histogram histogram = new Histogram(2);
+      final Histogram serviceTimeHistogram = new Histogram(2);
+      final Histogram responseTimeHistogram;
+      if (targetThroughput > 0) {
+         responseTimeHistogram = new Histogram(2);
+      } else {
+         responseTimeHistogram = null;
+      }
       try (StatisticsReader reader = new StatisticsReader(new File(inputPath))) {
          final StatisticsReader.Sample sample = new StatisticsReader.Sample();
          out.println("********************\tRESULTS OF WARM-UP\t********************");
          if (producer) {
-            printProducerSummary(reader, out, warmupIterations, histogram, sample, oneSecInProvidedTimeUnit, outputValueUnitScalingRatio, outputTimeUnit, outputFormat);
-         }
-         else {
-            printEndToEndSummary(reader, out, warmupIterations, histogram, sample, oneSecInProvidedTimeUnit, outputValueUnitScalingRatio, outputTimeUnit, outputFormat);
+            printProducerSummary(reader, out, warmupIterations, serviceTimeHistogram, sample, oneSecInProvidedTimeUnit, outputValueUnitScalingRatio, outputTimeUnit, outputFormat);
+         } else {
+            printEndToEndSummary(reader, out, warmupIterations, serviceTimeHistogram, 0, null, sample, oneSecInProvidedTimeUnit, outputValueUnitScalingRatio, outputTimeUnit, outputFormat);
          }
          out.println("********************\tEND RESULTS OF WARM-UP\t********************");
          for (int r = 0; r < runs; r++) {
             final int runNumber = (r + 1);
             out.println("********************\tRESULTS OF RUN " + runNumber + "\t********************");
             if (producer) {
-               printProducerSummary(reader, out, iterations, histogram, sample, oneSecInProvidedTimeUnit, outputValueUnitScalingRatio, outputTimeUnit, outputFormat);
-            }
-            else {
-               printEndToEndSummary(reader, out, iterations, histogram, sample, oneSecInProvidedTimeUnit, outputValueUnitScalingRatio, outputTimeUnit, outputFormat);
+               printProducerSummary(reader, out, iterations, serviceTimeHistogram, sample, oneSecInProvidedTimeUnit, outputValueUnitScalingRatio, outputTimeUnit, outputFormat);
+            } else {
+               printEndToEndSummary(reader, out, iterations, serviceTimeHistogram, targetThroughput, responseTimeHistogram, sample, oneSecInProvidedTimeUnit, outputValueUnitScalingRatio, outputTimeUnit, outputFormat);
             }
             out.println("********************\tEND RESULTS OF RUN " + runNumber + "\t********************");
          }
@@ -116,17 +123,28 @@ public class StatisticsSummaryGenerator {
    public static void printEndToEndSummary(StatisticsReader reader,
                                            PrintStream out,
                                            int iterations,
-                                           Histogram histogram,
+                                           Histogram serviceTimeHistogram,
+                                           int targetThroughput,
+                                           Histogram responseTimeHistogram,
                                            StatisticsReader.Sample sample,
                                            long oneSecInProvidedTimeUnit,
                                            double outputScalingRatio,
                                            TimeUnit outputTimeUnit,
                                            OutputFormat outputFormat) {
+      final long targetPeriod;
+      if (targetThroughput > 0) {
+         targetPeriod = oneSecInProvidedTimeUnit / targetThroughput;
+      } else {
+         targetPeriod = 0;
+      }
       long startProducer = 0;
       long startConsumer = 0;
       long endProducer = 0;
       long endConsumer = 0;
-      histogram.reset();
+      serviceTimeHistogram.reset();
+      if (responseTimeHistogram != null) {
+         responseTimeHistogram.reset();
+      }
       for (int m = 0; m < iterations; m++) {
          if (!reader.readUsing(sample)) {
             throw new IllegalStateException("unexpected EOF!");
@@ -136,13 +154,19 @@ public class StatisticsSummaryGenerator {
             final long time = sample.time();
             startProducer = time;
             startConsumer = time + value;
-         }
-         else if (m + 1 == iterations) {
+         } else if (m == (iterations - 1)) {
             final long time = sample.time();
             endProducer = time;
             endConsumer = time + value;
          }
-         histogram.recordValue(value);
+         if (responseTimeHistogram != null) {
+            final long intendedStart = startProducer + (m * targetPeriod);
+            final long waitTime = sample.time() - intendedStart;
+            final long serviceTime = sample.value();
+            final long responseTime = waitTime + serviceTime;
+            responseTimeHistogram.recordValue(responseTime);
+         }
+         serviceTimeHistogram.recordValue(value);
       }
       final long elapsedProducer = endProducer - startProducer;
       final long elapsedConsumer = endConsumer - startConsumer;
@@ -150,14 +174,21 @@ public class StatisticsSummaryGenerator {
       final long tptProducerPerSec = (iterations * oneSecInProvidedTimeUnit) / elapsedProducer;
       final long tptConsumerPerSec = (iterations * oneSecInProvidedTimeUnit) / elapsedConsumer;
       final long tptEndToEndPerSec = (iterations * oneSecInProvidedTimeUnit) / elapsedEndToEnd;
-      out.printf("Producer elapsed time: %.3f seconds\n", (double) elapsedProducer/oneSecInProvidedTimeUnit);
-      out.printf("Consumer elapsed time: %.3f seconds\n", (double) elapsedConsumer/oneSecInProvidedTimeUnit);
-      out.printf("EndToEnd elapsed time: %.3f seconds\n", (double) elapsedEndToEnd/oneSecInProvidedTimeUnit);
+      out.printf("Producer elapsed time: %.3f seconds\n", (double) elapsedProducer / oneSecInProvidedTimeUnit);
+      out.printf("Consumer elapsed time: %.3f seconds\n", (double) elapsedConsumer / oneSecInProvidedTimeUnit);
+      out.printf("EndToEnd elapsed time: %.3f seconds\n", (double) elapsedEndToEnd / oneSecInProvidedTimeUnit);
+      if (targetThroughput > 0) {
+         out.println("Target Throughput: " + targetThroughput + " ops/sec");
+      }
       out.println("Producer Throughput: " + tptProducerPerSec + " ops/sec");
       out.println("Consumer Throughput: " + tptConsumerPerSec + " ops/sec");
       out.println("EndToEnd Throughput: " + tptEndToEndPerSec + " ops/sec");
-      out.println("EndToEnd Latencies distribution in " + outputTimeUnit);
-      outputFormat.output(histogram, out, outputScalingRatio);
+      out.println("EndToEnd SERVICE-TIME Latencies distribution in " + outputTimeUnit);
+      outputFormat.output(serviceTimeHistogram, out, outputScalingRatio);
+      if (responseTimeHistogram != null) {
+         out.println("EndToEnd RESPONSE-TIME Latencies distribution in " + outputTimeUnit);
+         outputFormat.output(responseTimeHistogram, out, outputScalingRatio);
+      }
    }
 
    public static void printProducerSummary(StatisticsReader reader,
@@ -180,8 +211,7 @@ public class StatisticsSummaryGenerator {
          if (m == 0) {
             final long time = sample.time();
             startProducer = time;
-         }
-         else if (m + 1 == iterations) {
+         } else if (m + 1 == iterations) {
             final long time = sample.time();
             endProducer = time;
          }
@@ -189,7 +219,7 @@ public class StatisticsSummaryGenerator {
       }
       final long elapsedProducer = endProducer - startProducer;
       final long tptProducerPerSec = (iterations * oneSecInProvidedTimeUnit) / elapsedProducer;
-      out.printf("Producer elapsed time: %.3f seconds\n", (double) elapsedProducer/oneSecInProvidedTimeUnit);
+      out.printf("Producer elapsed time: %.3f seconds\n", (double) elapsedProducer / oneSecInProvidedTimeUnit);
       out.println("Producer Throughput: " + tptProducerPerSec + " ops/sec");
       out.println("Producer Latencies distribution in " + outputTimeUnit);
       outputFormat.output(histogram, out, outputScalingRatio);
