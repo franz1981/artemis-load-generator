@@ -17,9 +17,11 @@
 
 package org.apache.activemq.load.generator;
 
+import javax.jms.Connection;
 import javax.jms.ConnectionFactory;
 import javax.jms.Destination;
 import javax.jms.Queue;
+import javax.jms.Session;
 import javax.jms.Topic;
 import java.io.File;
 import java.util.Arrays;
@@ -53,10 +55,19 @@ public class DestinationBench {
       TimeProvider timeProvider = TimeProvider.Nano;
       Delivery delivery = Delivery.NonPersistent;
       boolean isTopic = false;
+      boolean isTemp = false;
       Protocol protocol = Protocol.artemis;
+      boolean producer = true;
+      boolean consumer = true;
       for (int i = 0; i < args.length; ++i) {
          final String arg = args[i];
          switch (arg) {
+            case "--no-producer":
+               producer = false;
+               break;
+            case "--no-consumer":
+               consumer = false;
+               break;
             case "--protocol":
                protocol = Protocol.valueOf(args[++i]);
                break;
@@ -80,6 +91,9 @@ public class DestinationBench {
                break;
             case "--topic":
                isTopic = true;
+               break;
+            case "--temp":
+               isTemp = true;
                break;
             case "--bytes":
                messageBytes = Integer.parseInt(args[++i]);
@@ -152,33 +166,61 @@ public class DestinationBench {
       //configure JMS
 
       final ConnectionFactory connectionFactory = protocol.createConnectionFactory(url);
+      final Connection connection = connectionFactory.createConnection();
+      final Session producerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
       final Destination destination;
-      if (isTopic) {
-         destination = protocol.createTopic(destinationName);
+      if (!isTemp) {
+         if (isTopic) {
+            destination = protocol.createTopic(destinationName);
+         } else {
+            destination = protocol.createQueue(destinationName);
+         }
       } else {
-         destination = protocol.createQueue(destinationName);
+         if (isTopic) {
+            destination = producerSession.createTemporaryTopic();
+         } else {
+            destination = producerSession.createTemporaryQueue();
+         }
       }
-      final CountDownLatch consumerReady = new CountDownLatch(1);
-      final AtomicBoolean consumed = new AtomicBoolean(false);
+      connection.start();
+      try {
+         if (consumer) {
+            final CountDownLatch consumerReady = new CountDownLatch(1);
+            final AtomicBoolean consumed = new AtomicBoolean(false);
 
-      try (final CloseableMessageListener messageListener = CloseableMessageListeners.with(timeProvider, messageBytes, consumerStatisticsFile, consumerSampleMode, iterations, runs, warmupIterations)) {
-         final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer", connectionFactory, destination, messageListener, Integer.MAX_VALUE, messages, consumed);
-         try (final AgentRunner consumerRunner = new AgentRunner(new BusySpinIdleStrategy(), System.err::println, null, jmsConsumerAgent)) {
-            final Thread consumerThread = new Thread(() -> {
-               try (AffinityLock affinityLock = AffinityLock.acquireLock()) {
-                  consumerReady.countDown();
-                  consumerRunner.run();
+            try (final CloseableMessageListener messageListener = CloseableMessageListeners.with(timeProvider, messageBytes, consumerStatisticsFile, consumerSampleMode, iterations, runs, warmupIterations)) {
+               final Session consumerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+               final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer", consumerSession, destination, messageListener, Integer.MAX_VALUE, messages, consumed);
+               try (final AgentRunner consumerRunner = new AgentRunner(new BusySpinIdleStrategy(), System.err::println, null, jmsConsumerAgent)) {
+                  final Thread consumerThread = new Thread(() -> {
+                     try (AffinityLock affinityLock = AffinityLock.acquireLock()) {
+                        consumerReady.countDown();
+                        consumerRunner.run();
+                     }
+                  });
+                  consumerThread.start();
+                  //start producer when
+                  consumerReady.await();
+                  if (producer) {
+                     System.out.println("Consumer ready...starting producer");
+                     ProducerRunner.runJmsProducer(producerSession, timeProvider, messageBytes, destination, producerStatisticsFile, producerSampleMode, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate, delivery);
+                  }
+                  while (!consumed.get()) {
+                     LockSupport.parkNanos(1L);
+                  }
+               } finally {
+                  CloseableHelper.quietClose(consumerSession);
                }
-            });
-            consumerThread.start();
-            //start producer when
-            consumerReady.await();
-            System.out.println("Consumer ready...starting producer");
-            ProducerRunner.runJmsProducer(connectionFactory, timeProvider, messageBytes, destination, producerStatisticsFile, producerSampleMode, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate, delivery);
-            while (!consumed.get()) {
-               LockSupport.parkNanos(1L);
+            }
+         } else {
+            if (producer) {
+               System.out.println("Consumer ready...starting producer");
+               ProducerRunner.runJmsProducer(producerSession, timeProvider, messageBytes, destination, producerStatisticsFile, producerSampleMode, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate, delivery);
             }
          }
+      } finally {
+         CloseableHelper.quietClose(producerSession);
+         CloseableHelper.quietClose(connection);
       }
 
    }

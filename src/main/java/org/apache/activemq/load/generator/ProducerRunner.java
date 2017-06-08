@@ -18,8 +18,6 @@
 package org.apache.activemq.load.generator;
 
 import javax.jms.BytesMessage;
-import javax.jms.Connection;
-import javax.jms.ConnectionFactory;
 import javax.jms.DeliveryMode;
 import javax.jms.Destination;
 import javax.jms.JMSException;
@@ -34,7 +32,7 @@ final class ProducerRunner {
    private ProducerRunner() {
    }
 
-   public static void runJmsProducer(ConnectionFactory connectionFactory,
+   public static void runJmsProducer(Session session,
                                      TimeProvider timeProvider,
                                      int messageBytes,
                                      Destination destination,
@@ -47,15 +45,11 @@ final class ProducerRunner {
                                      int waitSecondsBetweenIterations,
                                      boolean isWaitRate,
                                      Delivery delivery) {
-      Connection connection = null;
-      Session session = null;
       MessageProducer producer = null;
-      try(final CloseableTickerEventListener tickerEventListener = CloseableTickerEventListeners.with(statisticsFile,sampleMode,iterations,runs,warmupIterations)) {
-         connection = connectionFactory.createConnection();
-         session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+      try (final CloseableTickerEventListener tickerEventListener = CloseableTickerEventListeners.with(statisticsFile, sampleMode, iterations, runs, warmupIterations)) {
          producer = session.createProducer(destination);
          producer.setDisableMessageTimestamp(true);
-         switch(delivery){
+         switch (delivery) {
             case Persistent:
                producer.setDeliveryMode(DeliveryMode.PERSISTENT);
                break;
@@ -65,7 +59,6 @@ final class ProducerRunner {
             default:
                throw new AssertionError("unsupported case!");
          }
-         connection.start();
          final BytesMessage message = session.createBytesMessage();
          final ByteBuffer clientContent = ByteBuffer.allocate(messageBytes).order(ByteOrder.nativeOrder());
          final Ticker ticker;
@@ -78,8 +71,7 @@ final class ProducerRunner {
                      message.clearBody();
                      BytesMessageUtil.encodeTimestamp(message, clientContent, startServiceTime);
                      localProducer.send(message);
-                  }
-                  catch (Throwable ex) {
+                  } catch (Throwable ex) {
                      System.err.println(ex);
                   }
                };
@@ -91,8 +83,7 @@ final class ProducerRunner {
                      message.clearBody();
                      BytesMessageUtil.encodeTimestamp(message, clientContent, startTime);
                      localProducer.send(message);
-                  }
-                  catch (Throwable ex) {
+                  } catch (Throwable ex) {
                      System.err.println(ex);
                   }
                };
@@ -101,18 +92,15 @@ final class ProducerRunner {
                throw new AssertionError("unsupported case!");
          }
          if (targetThoughput > 0) {
-            ticker = Ticker.responseUnderLoadBenchmark(serviceAction, tickerEventListener, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations,isWaitRate);
-         }
-         else {
-            ticker = Ticker.throughputBenchmark(serviceAction, tickerEventListener, iterations, runs, warmupIterations, waitSecondsBetweenIterations,isWaitRate);
+            ticker = Ticker.responseUnderLoadBenchmark(serviceAction, tickerEventListener, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate);
+         } else {
+            ticker = Ticker.throughputBenchmark(serviceAction, tickerEventListener, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate);
          }
          ticker.run();
-      }catch(JMSException e){
+      } catch (JMSException e) {
          throw new IllegalStateException(e);
-      }finally{
+      } finally {
          CloseableHelper.quietClose(producer);
-         CloseableHelper.quietClose(session);
-         CloseableHelper.quietClose(connection);
       }
    }
 

@@ -17,8 +17,6 @@
 
 package org.apache.activemq.load.generator;
 
-import javax.jms.Connection;
-import javax.jms.ConnectionFactory;
 import javax.jms.Destination;
 import javax.jms.JMSException;
 import javax.jms.Message;
@@ -32,8 +30,6 @@ import org.agrona.concurrent.Agent;
 final class JmsConsumerAgent implements Agent {
 
    private final String consumerName;
-   private final Connection connection;
-   private final Session session;
    private final MessageConsumer consumer;
    private final MessageListener messageListener;
    private final int messageBatchLimit;
@@ -42,29 +38,19 @@ final class JmsConsumerAgent implements Agent {
    private long sequence;
 
    public JmsConsumerAgent(final String consumerName,
-                           final ConnectionFactory connectionFactory,
+                           final Session session,
                            final Destination destination,
                            final MessageListener messageListener,
                            final int messageBatchLimit,
                            final long messageCount,
                            final AtomicBoolean onMessageCount) {
-      Connection connection = null;
-      Session session = null;
       MessageConsumer consumer = null;
       try {
-         connection = connectionFactory.createConnection();
-         session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
          consumer = session.createConsumer(destination);
-         connection.start();
-      }
-      catch (JMSException e) {
+      } catch (JMSException e) {
          CloseableHelper.quietClose(consumer);
-         CloseableHelper.quietClose(session);
-         CloseableHelper.quietClose(connection);
          throw new IllegalStateException(e);
       }
-      this.connection = connection;
-      this.session = session;
       this.consumer = consumer;
       this.messageBatchLimit = messageBatchLimit;
       this.messageCount = messageCount;
@@ -83,8 +69,7 @@ final class JmsConsumerAgent implements Agent {
          final Message message = consumer.receiveNoWait();
          if (message == null) {
             return i;
-         }
-         else {
+         } else {
             messageListener.onMessage(message);
             sequence++;
             if (sequence == this.messageCount) {
@@ -99,8 +84,6 @@ final class JmsConsumerAgent implements Agent {
    @Override
    public void onClose() {
       CloseableHelper.quietClose(consumer);
-      CloseableHelper.quietClose(session);
-      CloseableHelper.quietClose(connection);
    }
 
    @Override
