@@ -59,9 +59,13 @@ public class DestinationBench {
       Protocol protocol = Protocol.artemis;
       boolean producer = true;
       boolean consumer = true;
+      boolean shareConnection = false;
       for (int i = 0; i < args.length; ++i) {
          final String arg = args[i];
          switch (arg) {
+            case "--share-connection":
+               shareConnection = true;
+               break;
             case "--no-producer":
                producer = false;
                break;
@@ -164,7 +168,10 @@ public class DestinationBench {
       System.out.println("iterations = " + iterations);
       System.out.println("*********\tEND CONFIGURATION SUMMARY\t*********");
       //configure JMS
-
+      if (isTemp) {
+         //force a shared connection
+         shareConnection = true;
+      }
       final ConnectionFactory connectionFactory = protocol.createConnectionFactory(url);
       final Connection connection = connectionFactory.createConnection();
       final Session producerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
@@ -190,9 +197,10 @@ public class DestinationBench {
 
             try (final CloseableMessageListener messageListener = CloseableMessageListeners.with(timeProvider, messageBytes, consumerStatisticsFile, consumerSampleMode, iterations, runs, warmupIterations)) {
                final Connection consumerConnection;
-               if (!isTemp) {
-                  //do not share the connection
-                  consumerConnection = connectionFactory.createConnection();
+               if (!shareConnection) {
+                  //do not share the connection/connectionFactory (like in a different process)
+                  final ConnectionFactory consumerConnectionFactory = protocol.createConnectionFactory(url);
+                  consumerConnection = consumerConnectionFactory.createConnection();
                   consumerConnection.start();
                } else {
                   consumerConnection = connection;
@@ -218,7 +226,7 @@ public class DestinationBench {
                   }
                } finally {
                   CloseableHelper.quietClose(consumerSession);
-                  if (consumerConnection != connection) {
+                  if (!shareConnection) {
                      CloseableHelper.quietClose(consumerConnection);
                   }
                }
