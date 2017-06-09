@@ -60,6 +60,7 @@ public class DestinationBench {
       boolean producer = true;
       boolean consumer = true;
       boolean shareConnection = false;
+      boolean blockingRead = true;
       for (int i = 0; i < args.length; ++i) {
          final String arg = args[i];
          switch (arg) {
@@ -110,6 +111,9 @@ public class DestinationBench {
                break;
             case "--target":
                targetThoughput = Integer.parseInt(args[++i]);
+               break;
+            case "--non-blocking-read":
+               blockingRead = false;
                break;
             case "--runs":
                runs = Integer.parseInt(args[++i]);
@@ -206,7 +210,7 @@ public class DestinationBench {
                   consumerConnection = connection;
                }
                final Session consumerSession = consumerConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-               final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer", consumerSession, destination, messageListener, Integer.MAX_VALUE, messages, consumed);
+               final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer", consumerSession, destination, messageListener, Integer.MAX_VALUE, messages, consumed, blockingRead);
                try (final AgentRunner consumerRunner = new AgentRunner(new BusySpinIdleStrategy(), System.err::println, null, jmsConsumerAgent)) {
                   final Thread consumerThread = new Thread(() -> {
                      try (AffinityLock affinityLock = AffinityLock.acquireLock()) {

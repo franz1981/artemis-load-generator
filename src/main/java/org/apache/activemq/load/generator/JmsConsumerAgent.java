@@ -35,6 +35,7 @@ final class JmsConsumerAgent implements Agent {
    private final int messageBatchLimit;
    private final long messageCount;
    private final AtomicBoolean onMessageCount;
+   private final boolean blockingRead;
    private long sequence;
 
    public JmsConsumerAgent(final String consumerName,
@@ -43,7 +44,8 @@ final class JmsConsumerAgent implements Agent {
                            final MessageListener messageListener,
                            final int messageBatchLimit,
                            final long messageCount,
-                           final AtomicBoolean onMessageCount) {
+                           final AtomicBoolean onMessageCount,
+                           final boolean blockingRead) {
       MessageConsumer consumer = null;
       try {
          consumer = session.createConsumer(destination);
@@ -58,6 +60,7 @@ final class JmsConsumerAgent implements Agent {
       this.consumerName = consumerName;
       this.sequence = 0;
       this.onMessageCount = onMessageCount;
+      this.blockingRead = blockingRead;
    }
 
    @Override
@@ -65,8 +68,14 @@ final class JmsConsumerAgent implements Agent {
       if (sequence >= this.messageCount) {
          return 0;
       }
+      final boolean blockingRead = this.blockingRead;
       for (int i = 0; i < messageBatchLimit; i++) {
-         final Message message = consumer.receiveNoWait();
+         final Message message;
+         if (blockingRead) {
+            message = consumer.receive();
+         } else {
+            message = consumer.receiveNoWait();
+         }
          if (message == null) {
             return i;
          } else {
