@@ -189,7 +189,15 @@ public class DestinationBench {
             final AtomicBoolean consumed = new AtomicBoolean(false);
 
             try (final CloseableMessageListener messageListener = CloseableMessageListeners.with(timeProvider, messageBytes, consumerStatisticsFile, consumerSampleMode, iterations, runs, warmupIterations)) {
-               final Session consumerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+               final Connection consumerConnection;
+               if (!isTemp) {
+                  //do not share the connection
+                  consumerConnection = connectionFactory.createConnection();
+                  consumerConnection.start();
+               } else {
+                  consumerConnection = connection;
+               }
+               final Session consumerSession = consumerConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
                final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer", consumerSession, destination, messageListener, Integer.MAX_VALUE, messages, consumed);
                try (final AgentRunner consumerRunner = new AgentRunner(new BusySpinIdleStrategy(), System.err::println, null, jmsConsumerAgent)) {
                   final Thread consumerThread = new Thread(() -> {
@@ -210,6 +218,9 @@ public class DestinationBench {
                   }
                } finally {
                   CloseableHelper.quietClose(consumerSession);
+                  if (consumerConnection != connection) {
+                     CloseableHelper.quietClose(consumerConnection);
+                  }
                }
             }
          } else {
