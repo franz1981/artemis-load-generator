@@ -163,8 +163,14 @@ public class StatisticsSummaryGenerator {
             final long intendedStart = startProducer + (m * targetPeriod);
             final long waitTime = sample.time() - intendedStart;
             final long serviceTime = sample.value();
-            final long responseTime = waitTime + serviceTime;
-            responseTimeHistogram.recordValue(responseTime);
+            assert serviceTime > 0 : "service time must be > 0";
+            if (waitTime < 0) {
+               System.err.println("waitTime = " + waitTime + " turned to be 0 due to approximation errors");
+               responseTimeHistogram.recordValue(serviceTime);
+            } else {
+               final long responseTime = waitTime + serviceTime;
+               responseTimeHistogram.recordValue(responseTime);
+            }
          }
          serviceTimeHistogram.recordValue(value);
       }
