@@ -45,6 +45,7 @@ final class JmsMessageLossLessLatencyRecorder implements CloseableMessageListene
       final long startTime = BytesMessageUtil.decodeTimestamp((BytesMessage) message, contentBuffer);
       //include the decoding time
       final long elapsedTime = timeProvider.now() - startTime;
+      assert elapsedTime >= 0 : "time can't flow in the opposite direction";
       statisticsRecorder.appendSample(startTime, elapsedTime);
    }
 

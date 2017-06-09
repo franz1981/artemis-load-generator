@@ -93,6 +93,7 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
       final long startTime = BytesMessageUtil.decodeTimestamp((BytesMessage) message, contentBuffer);
       //include the decoding time
       final long elapsedTime = min(timeProvider.now() - startTime, highestTrackableValue);
+      assert elapsedTime >= 0 : "time can't flow in the opposite direction";
       if (messages < currentMessageLimit) {
          currentHistogram.recordValue(elapsedTime);
       }
