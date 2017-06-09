@@ -144,6 +144,11 @@ public class DestinationBench {
             return;
          }
       }
+      //force shared connection to be true when temp queues/topics
+      if (isTemp) {
+         //force a shared connection
+         shareConnection = true;
+      }
       final long messages = ((iterations * runs) + warmupIterations);
       final File producerStatisticsFile = StatisticsFileNaming.newStatisticsWith(outputDir, producerSampleMode, "producer");
       final File consumerStatisticsFile = StatisticsFileNaming.newStatisticsWith(outputDir, consumerSampleMode, "consumer");
@@ -162,7 +167,11 @@ public class DestinationBench {
       }
       System.out.println("url = " + url);
       System.out.println("destinationType = " + (isTopic ? "Topic" : "Queue"));
-      System.out.println("destinationName = " + destinationName);
+      if (!isTemp) {
+         System.out.println("destinationName = " + destinationName);
+      } else {
+         System.out.println("temporary");
+      }
       System.out.println("messageBytes = " + messageBytes);
       if (targetThoughput > 0) {
          System.out.println("targetThroughput = " + targetThoughput);
@@ -170,12 +179,15 @@ public class DestinationBench {
       System.out.println("runs = " + runs);
       System.out.println("warmupIterations = " + warmupIterations);
       System.out.println("iterations = " + iterations);
-      System.out.println("*********\tEND CONFIGURATION SUMMARY\t*********");
-      //configure JMS
-      if (isTemp) {
-         //force a shared connection
-         shareConnection = true;
+      System.out.println("share connection = " + shareConnection);
+      if (consumer) {
+         if (!blockingRead) {
+            System.out.println("MessageConsumer::receiveNoWait");
+         } else {
+            System.out.println("MessageConsumer::receive");
+         }
       }
+      System.out.println("*********\tEND CONFIGURATION SUMMARY\t*********");
       final ConnectionFactory connectionFactory = protocol.createConnectionFactory(url);
       final Connection connection = connectionFactory.createConnection();
       final Session producerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
