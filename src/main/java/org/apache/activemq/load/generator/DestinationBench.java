@@ -61,6 +61,7 @@ public class DestinationBench {
       boolean consumer = true;
       boolean shareConnection = false;
       boolean blockingRead = true;
+      String durableName = null;
       for (int i = 0; i < args.length; ++i) {
          final String arg = args[i];
          switch (arg) {
@@ -129,6 +130,9 @@ public class DestinationBench {
                break;
             case "--time":
                timeProvider = TimeProvider.valueOf(args[++i]);
+               break;
+            case "--durable":
+               durableName = args[++i];
                break;
             case "--help":
                askedForHelp = true;
@@ -222,7 +226,7 @@ public class DestinationBench {
                   consumerConnection = connection;
                }
                final Session consumerSession = consumerConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-               final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer", consumerSession, destination, messageListener, Integer.MAX_VALUE, messages, consumed, blockingRead);
+               final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer", consumerSession, destination, messageListener, Integer.MAX_VALUE, messages, consumed, blockingRead, durableName);
                try (final AgentRunner consumerRunner = new AgentRunner(new BusySpinIdleStrategy(), System.err::println, null, jmsConsumerAgent)) {
                   final Thread consumerThread = new Thread(() -> {
                      try (AffinityLock affinityLock = AffinityLock.acquireLock()) {

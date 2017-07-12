@@ -23,6 +23,7 @@ import javax.jms.Message;
 import javax.jms.MessageConsumer;
 import javax.jms.MessageListener;
 import javax.jms.Session;
+import javax.jms.Topic;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.agrona.concurrent.Agent;
@@ -45,10 +46,15 @@ final class JmsConsumerAgent implements Agent {
                            final int messageBatchLimit,
                            final long messageCount,
                            final AtomicBoolean onMessageCount,
-                           final boolean blockingRead) {
+                           final boolean blockingRead,
+                           final String durableName) {
       MessageConsumer consumer = null;
       try {
-         consumer = session.createConsumer(destination);
+         if (durableName != null) {
+            consumer = session.createDurableSubscriber((Topic) destination, durableName);
+         } else {
+            consumer = session.createConsumer(destination);
+         }
       } catch (JMSException e) {
          CloseableHelper.quietClose(consumer);
          throw new IllegalStateException(e);
