@@ -20,12 +20,17 @@ package org.apache.activemq.load.generator;
 import javax.jms.Connection;
 import javax.jms.ConnectionFactory;
 import javax.jms.Destination;
+import javax.jms.MessageConsumer;
+import javax.jms.MessageProducer;
 import javax.jms.Queue;
 import javax.jms.Session;
+import javax.jms.TextMessage;
 import javax.jms.Topic;
+import javax.jms.TopicSubscriber;
 import java.io.File;
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
@@ -38,6 +43,7 @@ import org.agrona.concurrent.BusySpinIdleStrategy;
 public class DestinationBench {
 
    public static void main(String[] args) throws Exception {
+
       final String tmpDir = System.getProperty("java.io.tmpdir");
       String outputDir = tmpDir;
       boolean isWaitRate = false;
@@ -209,6 +215,9 @@ public class DestinationBench {
             destination = producerSession.createTemporaryQueue();
          }
       }
+      if (shareConnection && durableName != null) {
+         connection.setClientID(durableName);
+      }
       connection.start();
       try {
          if (consumer) {
@@ -221,6 +230,9 @@ public class DestinationBench {
                   //do not share the connection/connectionFactory (like in a different process)
                   final ConnectionFactory consumerConnectionFactory = protocol.createConnectionFactory(url);
                   consumerConnection = consumerConnectionFactory.createConnection();
+                  if (durableName != null) {
+                     consumerConnection.setClientID(durableName);
+                  }
                   consumerConnection.start();
                } else {
                   consumerConnection = connection;
