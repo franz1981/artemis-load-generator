@@ -24,49 +24,49 @@ import javax.jms.Session;
 
 final class CloseableHelper {
 
-   private CloseableHelper(){
+   private CloseableHelper() {
    }
 
-   public static Throwable quietClose(Session closeable){
-      if(closeable==null)
+   public static Throwable quietClose(Session closeable) {
+      if (closeable == null)
          return null;
-      try{
+      try {
          closeable.close();
          return null;
-      }catch (Throwable t){
+      } catch (Throwable t) {
          return t;
       }
    }
 
-   public static Throwable quietClose(Connection closeable){
-      if(closeable==null)
+   public static Throwable quietClose(Connection closeable) {
+      if (closeable == null)
          return null;
-      try{
+      try {
          closeable.close();
          return null;
-      }catch (Throwable t){
+      } catch (Throwable t) {
          return t;
       }
    }
 
-   public static Throwable quietClose(MessageProducer closeable){
-      if(closeable==null)
+   public static Throwable quietClose(MessageProducer closeable) {
+      if (closeable == null)
          return null;
-      try{
+      try {
          closeable.close();
          return null;
-      }catch (Throwable t){
+      } catch (Throwable t) {
          return t;
       }
    }
 
-   public static Throwable quietClose(MessageConsumer closeable){
-      if(closeable==null)
+   public static Throwable quietClose(MessageConsumer closeable) {
+      if (closeable == null)
          return null;
-      try{
+      try {
          closeable.close();
          return null;
-      }catch (Throwable t){
+      } catch (Throwable t) {
          return t;
       }
    }

@@ -30,8 +30,7 @@ public enum TimeProvider {
       long now() {
          return System.nanoTime();
       }
-   },
-   Millis {
+   }, Millis {
       @Override
       TimeUnit timeUnit() {
          return TimeUnit.MILLISECONDS;

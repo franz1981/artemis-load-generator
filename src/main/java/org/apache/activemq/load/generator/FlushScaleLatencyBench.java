@@ -116,8 +116,7 @@ public class FlushScaleLatencyBench {
       public void write(ByteBuffer byteBuffer, long position) {
          try {
             fc.write(byteBuffer, position);
-         }
-         catch (IOException e) {
+         } catch (IOException e) {
             throw new IllegalStateException(e);
          }
       }
@@ -126,8 +125,7 @@ public class FlushScaleLatencyBench {
       public void sync() {
          try {
             fc.force(false);
-         }
-         catch (IOException e) {
+         } catch (IOException e) {
             throw new IllegalStateException(e);
          }
       }
@@ -137,8 +135,7 @@ public class FlushScaleLatencyBench {
          try {
             this.fc.close();
             this.raf.close();
-         }
-         catch (IOException ex) {
+         } catch (IOException ex) {
             throw new IllegalStateException(ex);
          }
       }
@@ -257,8 +254,7 @@ public class FlushScaleLatencyBench {
                      final Writer configuredWriter;
                      if (!mapped) {
                         configuredWriter = new NioWriter(file, presetLength, fillLength, expectedLength);
-                     }
-                     else {
+                     } else {
                         configuredWriter = new MappedWriter(file, fillLength, expectedLength);
                      }
                      try (final Writer writer = configuredWriter) {
@@ -301,8 +297,7 @@ public class FlushScaleLatencyBench {
                         System.out.println("**********\tEND HISTOGRAMS RUN " + (r + 1) + " OF [" + Thread.currentThread().getId() + "]\t**********");
                      }
                   }
-               }
-               catch (IOException ex) {
+               } catch (IOException ex) {
                   System.err.println(ex);
                }
             }
@@ -313,8 +308,7 @@ public class FlushScaleLatencyBench {
       for (int i = 0; i < writers; i++) {
          try {
             writerThreads[i].join();
-         }
-         catch (InterruptedException e) {
+         } catch (InterruptedException e) {
             System.err.println(e);
          }
       }

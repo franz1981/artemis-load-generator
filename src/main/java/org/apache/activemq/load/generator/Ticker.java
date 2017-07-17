@@ -108,8 +108,7 @@ final class Ticker implements Runnable {
          final boolean rulMode = targetThroughput > 0;
          if (rulMode) {
             runRul();
-         }
-         else {
+         } else {
             runThroughput();
          }
       }
@@ -122,7 +121,7 @@ final class Ticker implements Runnable {
       final long startTest = System.nanoTime();
       tickerEventListener.onStartedRun(0);
       for (int i = 0; i < warmupIterations; i++) {
-         throughput(service,tickerEventListener,0);
+         throughput(service, tickerEventListener, 0);
       }
       tickerEventListener.onFinishedRun(0);
 
@@ -133,19 +132,19 @@ final class Ticker implements Runnable {
 
       for (int r = 0; r < runs; r++) {
          final int run = r + 1;
-         if(isWaitRate){
-            final long deadLine = startTest + run*(waitNanosBetweenIterations);
+         if (isWaitRate) {
+            final long deadLine = startTest + run * (waitNanosBetweenIterations);
             final long now = System.nanoTime();
             final long waitTime = deadLine - now;
-            if(waitTime>0) {
+            if (waitTime > 0) {
                LockSupport.parkNanos(waitTime);
             }
-         }else{
+         } else {
             LockSupport.parkNanos(waitNanosBetweenIterations);
          }
          tickerEventListener.onStartedRun(run);
          for (int i = 0; i < iterations; i++) {
-            throughput(service,tickerEventListener,run);
+            throughput(service, tickerEventListener, run);
          }
          tickerEventListener.onFinishedRun(run);
       }
@@ -159,7 +158,7 @@ final class Ticker implements Runnable {
       tickerEventListener.onStartedRun(0);
       for (int i = 0; i < warmupIterations; i++) {
          final long startServiceTime = System.nanoTime();
-         rul(service,tickerEventListener,0, startServiceTime, startServiceTime);
+         rul(service, tickerEventListener, 0, startServiceTime, startServiceTime);
       }
       tickerEventListener.onFinishedRun(0);
 
@@ -171,14 +170,14 @@ final class Ticker implements Runnable {
 
       for (int r = 0; r < runs; r++) {
          final int run = r + 1;
-         if(isWaitRate){
-            final long deadLine = startTest + run*(waitNanosBetweenIterations);
+         if (isWaitRate) {
+            final long deadLine = startTest + run * (waitNanosBetweenIterations);
             final long now = System.nanoTime();
             final long waitTime = deadLine - now;
-            if(waitTime>0) {
+            if (waitTime > 0) {
                LockSupport.parkNanos(waitTime);
             }
-         }else{
+         } else {
             LockSupport.parkNanos(waitNanosBetweenIterations);
          }
          tickerEventListener.onStartedRun(run);
@@ -187,14 +186,18 @@ final class Ticker implements Runnable {
          for (int i = 0; i < iterations; i++) {
             tickTime += nanoPause;
             spinWaitUntil(tickTime);
-            rul(service,tickerEventListener,run, tickTime, System.nanoTime());
+            rul(service, tickerEventListener, run, tickTime, System.nanoTime());
          }
          tickerEventListener.onFinishedRun(run);
       }
 
    }
 
-   private static void rul(ServiceAction service,TickerEventListener tickerEventListener,final int run, final long intendedStartServiceTime, final long startServiceTime) {
+   private static void rul(ServiceAction service,
+                           TickerEventListener tickerEventListener,
+                           final int run,
+                           final long intendedStartServiceTime,
+                           final long startServiceTime) {
       service.doWork(intendedStartServiceTime, startServiceTime);
       final long endServiceTime = System.nanoTime();
       final long serviceTime = endServiceTime - startServiceTime;
@@ -205,7 +208,7 @@ final class Ticker implements Runnable {
       tickerEventListener.onResponseTimeSample(run, intendedStartServiceTime, responseTime);
    }
 
-   private static void throughput(ServiceAction service,TickerEventListener tickerEventListener,int run) {
+   private static void throughput(ServiceAction service, TickerEventListener tickerEventListener, int run) {
       final long startServiceTime = System.nanoTime();
       service.doWork(startServiceTime, startServiceTime);
       final long endServiceTime = System.nanoTime();

@@ -71,8 +71,7 @@ public class HistogramGenerator {
       final Histogram coFreeHistogram;
       if (coordinatedOmissionFix) {
          coFreeHistogram = new Histogram(maxPeriod, 2);
-      }
-      else {
+      } else {
          coFreeHistogram = null;
       }
       try (final RandomAccessFile raf = new RandomAccessFile(inputPath, "r"); final FileChannel fc = raf.getChannel()) {
@@ -92,8 +91,7 @@ public class HistogramGenerator {
                final long elapsedInNanos;
                if (forceElapsedNano) {
                   elapsedInNanos = Long.parseLong(ascii);
-               }
-               else {
+               } else {
                   final double value = Double.parseDouble(ascii);
                   elapsedInNanos = (long) (value * 1000_000L);
                }

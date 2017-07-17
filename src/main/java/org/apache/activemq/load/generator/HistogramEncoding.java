@@ -50,35 +50,33 @@ public class HistogramEncoding {
 
    @Setup
    public void init() throws JMSException {
-      original = new Histogram(highestTrackableValue,2);
-      for(long i = 0;i<TimeUnit.SECONDS.toNanos(1);i++){
+      original = new Histogram(highestTrackableValue, 2);
+      for (long i = 0; i < TimeUnit.SECONDS.toNanos(1); i++) {
          original.recordValue(i);
       }
       this.encodedHistogram = ByteBuffer.allocateDirect(original.getNeededByteBufferCapacity()).order(ByteOrder.nativeOrder());
-      this.copy = new Histogram(highestTrackableValue,2);
+      this.copy = new Histogram(highestTrackableValue, 2);
       this.last = System.nanoTime();
    }
 
    @Benchmark
-   public Histogram record(){
-      final long value = Math.min(System.nanoTime() - last,highestTrackableValue);
+   public Histogram record() {
+      final long value = Math.min(System.nanoTime() - last, highestTrackableValue);
       this.copy.recordValue(value);
       return copy;
    }
 
    @Benchmark
-   public int encodeIntoBytes(){
+   public int encodeIntoBytes() {
       this.encodedHistogram.clear();
       return this.original.encodeIntoByteBuffer(encodedHistogram);
    }
 
-
    @Benchmark
-   public Histogram copyIntoHistogram(){
+   public Histogram copyIntoHistogram() {
       this.original.copyInto(copy);
       return copy;
    }
-
 
    public static void main(String[] args) throws RunnerException {
       final Options opt = new OptionsBuilder().include(HistogramEncoding.class.getSimpleName()).addProfiler(GCProfiler.class).warmupIterations(5).measurementIterations(5).forks(1).build();

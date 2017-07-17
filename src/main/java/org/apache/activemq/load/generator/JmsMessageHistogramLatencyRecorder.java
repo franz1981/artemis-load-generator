@@ -49,7 +49,7 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
                                              int iterations,
                                              ByteBuffer heapContentBuffer) {
       final double outputValueUnitScalingRatio;
-      switch(timeProvider){
+      switch (timeProvider) {
          case Nano:
             outputValueUnitScalingRatio = 1000d;
             break;
@@ -81,10 +81,10 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
       this.currentMessageLimit = messagesLimit[0];
    }
 
-   private static long min(long a,long b){
+   private static long min(long a, long b) {
       //isATheMinimum==ALL 1s <-> min(a,b)==a && isATheMinimum==0 <-> min(a,b)==b
-      final long isATheMinimum = (a-b)>>63;
-      final long min = (a&isATheMinimum)|(b&(~isATheMinimum));
+      final long isATheMinimum = (a - b) >> 63;
+      final long min = (a & isATheMinimum) | (b & (~isATheMinimum));
       return min;
    }
 
@@ -96,8 +96,7 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
       assert elapsedTime >= 0 : "time can't flow in the opposite direction";
       if (messages < currentMessageLimit) {
          currentHistogram.recordValue(elapsedTime);
-      }
-      else {
+      } else {
          final Histogram histogram = switchHistogram();
          if (histogram != null) {
             histogram.recordValue(elapsedTime);
@@ -109,8 +108,7 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
    private Histogram switchHistogram() {
       if (currentIndex == runs) {
          return null;
-      }
-      else {
+      } else {
          currentIndex++;
          currentHistogram = histograms[currentIndex];
          currentMessageLimit = messagesLimit[currentIndex];
@@ -125,8 +123,7 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
          for (int i = 0; i < histograms.length; i++) {
             histograms[i].outputPercentileDistribution(outputStream, outputValueUnitScalingRatio);
          }
-      }
-      catch (FileNotFoundException e) {
+      } catch (FileNotFoundException e) {
          throw new IllegalStateException(e);
       }
    }

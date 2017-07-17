@@ -154,7 +154,7 @@ public class SingleWriterBatchingBenchmark {
                         mappedBytes = fc.map(FileChannel.MapMode.READ_WRITE, 0, expectedLength);
                      }
                      if (fillLength) {
-                        UnsafeAccess.UNSAFE.setMemory(null,BufferUtil.address(mappedBytes),expectedLength,(byte)0);
+                        UnsafeAccess.UNSAFE.setMemory(null, BufferUtil.address(mappedBytes), expectedLength, (byte) 0);
                         mappedBytes.force();
                      }
                      batchSizeHistogram.reset();
@@ -184,8 +184,7 @@ public class SingleWriterBatchingBenchmark {
                            }
                         }
                         elapsed = System.nanoTime() - start;
-                     }
-                     finally {
+                     } finally {
                         //wait to finish!
                         barrier.decrementAndGet();
                         while (barrier.get() != 0) {
@@ -204,8 +203,7 @@ public class SingleWriterBatchingBenchmark {
                         flushHistogram.outputPercentileDistribution(System.out, 1000.0);
                         System.out.println("**********\tEND APPENDER RUN " + (r + 1) + " OF [" + Thread.currentThread().getId() + "]\t**********");
                      }
-                  }
-                  catch (IOException ie) {
+                  } catch (IOException ie) {
                      throw new IllegalStateException(ie);
                   }
                }
@@ -264,15 +262,13 @@ public class SingleWriterBatchingBenchmark {
       for (int i = 0; i < writers; i++) {
          try {
             writerThreads[i].join();
-         }
-         catch (InterruptedException e) {
+         } catch (InterruptedException e) {
             System.err.println(e);
          }
       }
       try {
          appenderThread.join();
-      }
-      catch (InterruptedException e) {
+      } catch (InterruptedException e) {
          System.err.println(e);
       }
    }

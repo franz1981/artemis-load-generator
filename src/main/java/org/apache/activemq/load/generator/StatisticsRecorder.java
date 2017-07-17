@@ -30,15 +30,15 @@ import sun.nio.ch.DirectBuffer;
 
 final class StatisticsRecorder implements AutoCloseable {
 
-   private static final int MAX_CHUNK_SIZE = 1<<30;
+   private static final int MAX_CHUNK_SIZE = 1 << 30;
    private static final int TIME_OFFSET = 0;
    private static final int TIME_SIZE = Long.BYTES;
    private static final int VALUE_OFFSET = TIME_OFFSET + TIME_SIZE;
    private static final int VALUE_SIZE = Long.BYTES;
    public static final int ENTRY_SIZE = VALUE_OFFSET + VALUE_SIZE;
 
-   static{
-      if((MAX_CHUNK_SIZE%ENTRY_SIZE)!=0){
+   static {
+      if ((MAX_CHUNK_SIZE % ENTRY_SIZE) != 0) {
          throw new RuntimeException("MAX_CHUNK_SIZE must be a multiple of ENTRY_SIZE!");
       }
    }
@@ -51,18 +51,18 @@ final class StatisticsRecorder implements AutoCloseable {
    private long nextExclusiveLimit;
 
    public StatisticsRecorder(File statisticsFile, long samples, boolean fill) {
-      this.size = samples*ENTRY_SIZE;
+      this.size = samples * ENTRY_SIZE;
       try (RandomAccessFile raf = new RandomAccessFile(statisticsFile, "rw"); FileChannel fc = raf.getChannel()) {
-         buffers = new MappedByteBuffer[(int)((this.size /MAX_CHUNK_SIZE)+1)];
+         buffers = new MappedByteBuffer[(int) ((this.size / MAX_CHUNK_SIZE) + 1)];
          int i = 0;
          long remaining = this.size;
          long position = 0;
-         while(remaining>=MAX_CHUNK_SIZE){
-            final MappedByteBuffer buffer = fc.map(FileChannel.MapMode.READ_WRITE, position , MAX_CHUNK_SIZE);
+         while (remaining >= MAX_CHUNK_SIZE) {
+            final MappedByteBuffer buffer = fc.map(FileChannel.MapMode.READ_WRITE, position, MAX_CHUNK_SIZE);
             buffer.order(ByteOrder.nativeOrder());
             buffers[i] = buffer;
-            remaining-=MAX_CHUNK_SIZE;
-            position+=MAX_CHUNK_SIZE;
+            remaining -= MAX_CHUNK_SIZE;
+            position += MAX_CHUNK_SIZE;
             i++;
          }
          final MappedByteBuffer lastBuffer = fc.map(FileChannel.MapMode.READ_WRITE, position, remaining);
@@ -71,20 +71,20 @@ final class StatisticsRecorder implements AutoCloseable {
          throw new IllegalStateException(e);
       }
       if (fill) {
-         for(int i = 0;i<buffers.length;i++){
+         for (int i = 0; i < buffers.length; i++) {
             final MappedByteBuffer buffer = buffers[i];
-            final long address = ((DirectBuffer)buffer).address();
+            final long address = ((DirectBuffer) buffer).address();
             final int capacity = buffer.capacity();
-            UnsafeAccess.UNSAFE.setMemory(null,address,capacity,(byte)0);
+            UnsafeAccess.UNSAFE.setMemory(null, address, capacity, (byte) 0);
          }
       }
       this.offset = 0;
       final MappedByteBuffer firstBuffer = buffers[0];
-      this.nextAddress = ((DirectBuffer)firstBuffer).address();
+      this.nextAddress = ((DirectBuffer) firstBuffer).address();
       this.nextExclusiveLimit = nextAddress + firstBuffer.capacity();
    }
 
-   public MappedByteBuffer[] buffers(){
+   public MappedByteBuffer[] buffers() {
       return buffers;
    }
 
@@ -92,34 +92,34 @@ final class StatisticsRecorder implements AutoCloseable {
       return offset;
    }
 
-   public long size(){
+   public long size() {
       return size;
    }
 
    public void appendSample(long time, long value) {
-      if(buffers==null){
+      if (buffers == null) {
          throw new IllegalStateException("recorder closed!");
       }
       final long nextOffset = offset + ENTRY_SIZE;
-      if(nextOffset> size){
+      if (nextOffset > size) {
          throw new IllegalStateException("can't add new samples!");
       }
       UnsafeAccess.UNSAFE.putLong(nextAddress + TIME_OFFSET, time);
       UnsafeAccess.UNSAFE.putLong(nextAddress + VALUE_OFFSET, value);
       this.offset = nextOffset;
       final long address = nextAddress + ENTRY_SIZE;
-      if(address>=this.nextExclusiveLimit){
+      if (address >= this.nextExclusiveLimit) {
          nextMappedRegion();
-      }else{
+      } else {
          this.nextAddress = address;
       }
    }
 
-   private void nextMappedRegion(){
-      final int nextMappedregionIndex = this.mappedRegionIndex+1;
-      if(nextMappedregionIndex<this.buffers.length){
+   private void nextMappedRegion() {
+      final int nextMappedregionIndex = this.mappedRegionIndex + 1;
+      if (nextMappedregionIndex < this.buffers.length) {
          final MappedByteBuffer buffer = this.buffers[nextMappedregionIndex];
-         this.nextAddress = ((DirectBuffer)buffer).address();
+         this.nextAddress = ((DirectBuffer) buffer).address();
          final long capacity = buffer.capacity();
          this.nextExclusiveLimit = this.nextAddress + capacity;
          this.mappedRegionIndex = nextMappedregionIndex;
@@ -137,12 +137,11 @@ final class StatisticsRecorder implements AutoCloseable {
                   if (cleaner != null) {
                      cleaner.clean();
                   }
-               }
-               catch (Exception e) {
+               } catch (Exception e) {
                   System.err.println(e);
                }
             }
-         }finally {
+         } finally {
             this.buffers = null;
          }
       }

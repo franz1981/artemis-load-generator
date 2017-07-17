@@ -84,8 +84,7 @@ public class MessageBytesBench {
    public void close() throws Exception {
       try {
          this.session.close();
-      }
-      finally {
+      } finally {
          this.connection.close();
       }
    }

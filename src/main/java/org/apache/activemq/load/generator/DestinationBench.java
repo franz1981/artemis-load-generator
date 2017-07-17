@@ -20,18 +20,15 @@ package org.apache.activemq.load.generator;
 import javax.jms.Connection;
 import javax.jms.ConnectionFactory;
 import javax.jms.Destination;
-import javax.jms.MessageConsumer;
-import javax.jms.MessageProducer;
 import javax.jms.Queue;
 import javax.jms.Session;
-import javax.jms.TextMessage;
 import javax.jms.Topic;
-import javax.jms.TopicSubscriber;
 import java.io.File;
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
 
@@ -43,7 +40,28 @@ import org.agrona.concurrent.BusySpinIdleStrategy;
 public class DestinationBench {
 
    public static void main(String[] args) throws Exception {
-
+      final AtomicLong sentMessages = new AtomicLong(0);
+      final AtomicLong receivedMessages = new AtomicLong(0);
+      final Thread reportingThread = new Thread(() -> {
+         long lastSentMessages = sentMessages.get();
+         long lastReceivedMessages = receivedMessages.get();
+         long lastTimestamp = System.currentTimeMillis();
+         while (!Thread.currentThread().isInterrupted()) {
+            LockSupport.parkNanos(TimeUnit.SECONDS.toNanos(1));
+            final long now = System.currentTimeMillis();
+            final long elapsed = now - lastTimestamp;
+            final long sentNow = sentMessages.get();
+            final long receivedNow = receivedMessages.get();
+            final long sent = sentNow - lastSentMessages;
+            final long received = receivedNow - lastReceivedMessages;
+            System.out.print("\033[H\033[2J");
+            System.out.format("Duration %dms - Sent %,d msg - Received %,d msg%n", elapsed, sent, received);
+            lastSentMessages = sentNow;
+            lastReceivedMessages = receivedNow;
+            lastTimestamp = now;
+         }
+      });
+      reportingThread.setDaemon(true);
       final String tmpDir = System.getProperty("java.io.tmpdir");
       String outputDir = tmpDir;
       boolean isWaitRate = false;
@@ -238,7 +256,7 @@ public class DestinationBench {
                   consumerConnection = connection;
                }
                final Session consumerSession = consumerConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-               final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer", consumerSession, destination, messageListener, Integer.MAX_VALUE, messages, consumed, blockingRead, durableName);
+               final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer", consumerSession, destination, messageListener, Integer.MAX_VALUE, messages, consumed, blockingRead, durableName, receivedMessages);
                try (final AgentRunner consumerRunner = new AgentRunner(new BusySpinIdleStrategy(), System.err::println, null, jmsConsumerAgent)) {
                   final Thread consumerThread = new Thread(() -> {
                      try (AffinityLock affinityLock = AffinityLock.acquireLock()) {
@@ -249,9 +267,9 @@ public class DestinationBench {
                   consumerThread.start();
                   //start producer when
                   consumerReady.await();
+                  reportingThread.start();
                   if (producer) {
-                     System.out.println("Consumer ready...starting producer");
-                     ProducerRunner.runJmsProducer(producerSession, timeProvider, messageBytes, destination, producerStatisticsFile, producerSampleMode, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate, delivery);
+                     ProducerRunner.runJmsProducer(producerSession, timeProvider, messageBytes, destination, producerStatisticsFile, producerSampleMode, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate, delivery, sentMessages);
                   }
                   while (!consumed.get()) {
                      LockSupport.parkNanos(1L);
@@ -264,9 +282,9 @@ public class DestinationBench {
                }
             }
          } else {
+            reportingThread.start();
             if (producer) {
-               System.out.println("Consumer ready...starting producer");
-               ProducerRunner.runJmsProducer(producerSession, timeProvider, messageBytes, destination, producerStatisticsFile, producerSampleMode, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate, delivery);
+               ProducerRunner.runJmsProducer(producerSession, timeProvider, messageBytes, destination, producerStatisticsFile, producerSampleMode, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate, delivery, sentMessages);
             }
          }
       } finally {

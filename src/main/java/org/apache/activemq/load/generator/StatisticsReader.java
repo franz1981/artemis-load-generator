@@ -30,11 +30,12 @@ import sun.nio.ch.DirectBuffer;
 
 final class StatisticsReader implements AutoCloseable {
 
-   public static final class Sample{
+   public static final class Sample {
+
       private long time;
       private long value;
 
-      public Sample(){
+      public Sample() {
       }
 
       public long time() {
@@ -53,8 +54,8 @@ final class StatisticsReader implements AutoCloseable {
    private static final int VALUE_SIZE = Long.BYTES;
    public static final int ENTRY_SIZE = VALUE_OFFSET + VALUE_SIZE;
 
-   static{
-      if((MAX_CHUNK_SIZE%ENTRY_SIZE)!=0){
+   static {
+      if ((MAX_CHUNK_SIZE % ENTRY_SIZE) != 0) {
          throw new RuntimeException("MAX_CHUNK_SIZE must be a multiple of ENTRY_SIZE!");
       }
    }
@@ -118,14 +119,12 @@ final class StatisticsReader implements AutoCloseable {
          sample.time = time;
          sample.value = value;
          return true;
-      }
-      finally {
+      } finally {
          this.offset = nextOffset;
          final long address = nextAddress + ENTRY_SIZE;
          if (address >= this.nextExclusiveLimit) {
             nextMappedRegion();
-         }
-         else {
+         } else {
             this.nextAddress = address;
          }
       }
@@ -153,13 +152,11 @@ final class StatisticsReader implements AutoCloseable {
                   if (cleaner != null) {
                      cleaner.clean();
                   }
-               }
-               catch (Exception e) {
+               } catch (Exception e) {
                   System.err.println(e);
                }
             }
-         }
-         finally {
+         } finally {
             this.buffers = null;
          }
       }

@@ -21,11 +21,11 @@ import java.io.File;
 
 final class StatisticsFileNaming {
 
-   private StatisticsFileNaming(){
+   private StatisticsFileNaming() {
 
    }
 
-   public static File newStatisticsWith(String outputDir, SampleMode sampleMode, String producerName){
+   public static File newStatisticsWith(String outputDir, SampleMode sampleMode, String producerName) {
       final File statisticsFile;
       switch (sampleMode) {
          case LossLess:

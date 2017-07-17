@@ -22,13 +22,13 @@ import java.util.concurrent.TimeUnit;
 
 public class TickerBaseLine {
 
-   public static void main(String[] args){
+   public static void main(String[] args) {
       final int runs = 10;
       final int iterations = 1_000_000;
       final int warmup = 500_000;
-      try(CloseableTickerEventListener tickerEventListener = new TickerEventHistogramLatencyRecorder(new File("baseline.dat"),runs, TimeUnit.SECONDS.toNanos(10))){
+      try (CloseableTickerEventListener tickerEventListener = new TickerEventHistogramLatencyRecorder(new File("baseline.dat"), runs, TimeUnit.SECONDS.toNanos(10))) {
          final Ticker ticker = Ticker.throughputBenchmark((intendedStartServiceTime, startServiceTime) -> {
-            }, tickerEventListener, iterations, runs, warmup, 2, false);
+         }, tickerEventListener, iterations, runs, warmup, 2, false);
          ticker.run();
       }
    }

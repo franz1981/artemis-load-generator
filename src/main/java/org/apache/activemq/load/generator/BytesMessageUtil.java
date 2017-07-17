@@ -28,8 +28,7 @@ public class BytesMessageUtil {
       contentArrayBytes.putLong(MESSAGE_TIMESTAMP_OFFSET, timestamp);
       try {
          bytesMessage.writeBytes(contentArrayBytes.array());
-      }
-      catch (Exception e) {
+      } catch (Exception e) {
          throw new IllegalStateException(e);
       }
    }
@@ -38,8 +37,7 @@ public class BytesMessageUtil {
       try {
          bytesMessage.readBytes(contentArrayBytes.array());
          return contentArrayBytes.getLong(MESSAGE_TIMESTAMP_OFFSET);
-      }
-      catch (Exception e) {
+      } catch (Exception e) {
          throw new IllegalStateException(e);
       }
    }

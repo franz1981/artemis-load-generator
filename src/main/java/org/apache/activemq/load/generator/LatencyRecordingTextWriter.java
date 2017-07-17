@@ -72,12 +72,12 @@ public class LatencyRecordingTextWriter {
       }
       final char endOfLine = '\n';
       final char separator = ',';
-      try(StatisticsReader reader = new StatisticsReader(new File(inputPath))){
-            final SampleCsvWriter sampleWriter = new SampleCsvWriter(System.out, separator, endOfLine, tptTimeUnit, normalized);
-            final StatisticsReader.Sample sample = new StatisticsReader.Sample();
-            while(reader.readUsing(sample)){
-               sampleWriter.write(sample.time(),sample.value());
-            }
+      try (StatisticsReader reader = new StatisticsReader(new File(inputPath))) {
+         final SampleCsvWriter sampleWriter = new SampleCsvWriter(System.out, separator, endOfLine, tptTimeUnit, normalized);
+         final StatisticsReader.Sample sample = new StatisticsReader.Sample();
+         while (reader.readUsing(sample)) {
+            sampleWriter.write(sample.time(), sample.value());
+         }
       }
    }
 

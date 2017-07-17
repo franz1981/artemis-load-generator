@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 final class CloseableTickerEventListeners {
 
-   private CloseableTickerEventListeners(){
+   private CloseableTickerEventListeners() {
 
    }
 
@@ -30,7 +30,7 @@ final class CloseableTickerEventListeners {
                                                    SampleMode sampleMode,
                                                    int iterations,
                                                    int runs,
-                                                   int warmupIterations){
+                                                   int warmupIterations) {
       final long messages = (iterations * runs) + warmupIterations;
       final CloseableTickerEventListener tickerEventListener;
       switch (sampleMode) {

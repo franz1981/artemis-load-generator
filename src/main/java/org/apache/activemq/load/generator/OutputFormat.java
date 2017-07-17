@@ -27,14 +27,14 @@ public enum OutputFormat {
    LONG {
       @Override
       public void output(final Histogram histogram, PrintStream out, double outputScalingRatio) {
-         out.append(format("%-6s%20.2f%n", "mean", histogram.getMean()/outputScalingRatio));
-         out.append(format("%-6s%20.2f%n", "min", histogram.getMinValue()/outputScalingRatio));
-         out.append(format("%-6s%20.2f%n", "50.00%", histogram.getValueAtPercentile(50.0d)/outputScalingRatio));
-         out.append(format("%-6s%20.2f%n", "90.00%", histogram.getValueAtPercentile(90.0d)/outputScalingRatio));
-         out.append(format("%-6s%20.2f%n", "99.00%", histogram.getValueAtPercentile(99.0d)/outputScalingRatio));
-         out.append(format("%-6s%20.2f%n", "99.90%", histogram.getValueAtPercentile(99.9d)/outputScalingRatio));
-         out.append(format("%-6s%20.2f%n", "99.99%", histogram.getValueAtPercentile(99.99d)/outputScalingRatio));
-         out.append(format("%-6s%20.2f%n", "max", histogram.getMaxValue()/outputScalingRatio));
+         out.append(format("%-6s%20.2f%n", "mean", histogram.getMean() / outputScalingRatio));
+         out.append(format("%-6s%20.2f%n", "min", histogram.getMinValue() / outputScalingRatio));
+         out.append(format("%-6s%20.2f%n", "50.00%", histogram.getValueAtPercentile(50.0d) / outputScalingRatio));
+         out.append(format("%-6s%20.2f%n", "90.00%", histogram.getValueAtPercentile(90.0d) / outputScalingRatio));
+         out.append(format("%-6s%20.2f%n", "99.00%", histogram.getValueAtPercentile(99.0d) / outputScalingRatio));
+         out.append(format("%-6s%20.2f%n", "99.90%", histogram.getValueAtPercentile(99.9d) / outputScalingRatio));
+         out.append(format("%-6s%20.2f%n", "99.99%", histogram.getValueAtPercentile(99.99d) / outputScalingRatio));
+         out.append(format("%-6s%20.2f%n", "max", histogram.getMaxValue() / outputScalingRatio));
          out.append(format("%-6s%20d%n", "count", histogram.getTotalCount()));
          out.append("\n");
          out.flush();
@@ -42,16 +42,7 @@ public enum OutputFormat {
    }, SHORT {
       @Override
       public void output(final Histogram histogram, final PrintStream out, double outputScalingRatio) {
-         out.append(format("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d%n",
-                           histogram.getMean()/outputScalingRatio,
-                           histogram.getMinValue()/outputScalingRatio,
-                           histogram.getValueAtPercentile(50.0d)/outputScalingRatio,
-                           histogram.getValueAtPercentile(90.0d)/outputScalingRatio,
-                           histogram.getValueAtPercentile(99.0d)/outputScalingRatio,
-                           histogram.getValueAtPercentile(99.9d)/outputScalingRatio,
-                           histogram.getValueAtPercentile(99.99d)/outputScalingRatio,
-                           histogram.getMaxValue()/outputScalingRatio,
-                           histogram.getTotalCount()));
+         out.append(format("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d%n", histogram.getMean() / outputScalingRatio, histogram.getMinValue() / outputScalingRatio, histogram.getValueAtPercentile(50.0d) / outputScalingRatio, histogram.getValueAtPercentile(90.0d) / outputScalingRatio, histogram.getValueAtPercentile(99.0d) / outputScalingRatio, histogram.getValueAtPercentile(99.9d) / outputScalingRatio, histogram.getValueAtPercentile(99.99d) / outputScalingRatio, histogram.getMaxValue() / outputScalingRatio, histogram.getTotalCount()));
          out.flush();
       }
    }, DETAIL {

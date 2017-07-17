@@ -31,7 +31,11 @@ final class SampleCsvWriter {
    private final long factor;
    private long startTimestamp;
 
-   public SampleCsvWriter(PrintStream output, char separator, char endOfLine, TimeUnit tptTimeUnit, boolean normalized) {
+   public SampleCsvWriter(PrintStream output,
+                          char separator,
+                          char endOfLine,
+                          TimeUnit tptTimeUnit,
+                          boolean normalized) {
       this.output = output;
       this.normalized = normalized;
       this.endOfLine = endOfLine;
@@ -45,8 +49,7 @@ final class SampleCsvWriter {
       this.startTimestamp = -1L;
       if (tptTimeUnit != null) {
          this.factor = tptTimeUnit.convert(1, TimeUnit.SECONDS);
-      }
-      else {
+      } else {
          this.factor = 1;
       }
    }
@@ -67,8 +70,7 @@ final class SampleCsvWriter {
       if (tptTimeUnit != null) {
          final long throughputPerSeconds = this.factor / latency;
          valueToPrint = throughputPerSeconds;
-      }
-      else {
+      } else {
          valueToPrint = latency;
       }
       lineBuilder.append(endOfLine);

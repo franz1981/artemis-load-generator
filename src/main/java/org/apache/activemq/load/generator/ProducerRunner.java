@@ -26,6 +26,7 @@ import javax.jms.Session;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.atomic.AtomicLong;
 
 final class ProducerRunner {
 
@@ -44,7 +45,8 @@ final class ProducerRunner {
                                      int warmupIterations,
                                      int waitSecondsBetweenIterations,
                                      boolean isWaitRate,
-                                     Delivery delivery) {
+                                     Delivery delivery,
+                                     final AtomicLong sentMessages) {
       MessageProducer producer = null;
       try (final CloseableTickerEventListener tickerEventListener = CloseableTickerEventListeners.with(statisticsFile, sampleMode, iterations, runs, warmupIterations)) {
          producer = session.createProducer(destination);
@@ -71,6 +73,7 @@ final class ProducerRunner {
                      message.clearBody();
                      BytesMessageUtil.encodeTimestamp(message, clientContent, startServiceTime);
                      localProducer.send(message);
+                     sentMessages.lazySet(sentMessages.get() + 1L);
                   } catch (Throwable ex) {
                      System.err.println(ex);
                   }
@@ -83,6 +86,7 @@ final class ProducerRunner {
                      message.clearBody();
                      BytesMessageUtil.encodeTimestamp(message, clientContent, startTime);
                      localProducer.send(message);
+                     sentMessages.lazySet(sentMessages.get() + 1L);
                   } catch (Throwable ex) {
                      System.err.println(ex);
                   }

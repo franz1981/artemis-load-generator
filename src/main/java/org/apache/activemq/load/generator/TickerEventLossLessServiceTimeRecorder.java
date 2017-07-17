@@ -19,17 +19,17 @@ package org.apache.activemq.load.generator;
 
 import java.io.File;
 
-final class TickerEventLossLessServiceTimeRecorder implements CloseableTickerEventListener{
+final class TickerEventLossLessServiceTimeRecorder implements CloseableTickerEventListener {
 
    private final StatisticsRecorder statisticsRecorder;
 
-   TickerEventLossLessServiceTimeRecorder(File serviceTimeStatistics, long samples){
-      this.statisticsRecorder = new StatisticsRecorder(serviceTimeStatistics,samples,true);
+   TickerEventLossLessServiceTimeRecorder(File serviceTimeStatistics, long samples) {
+      this.statisticsRecorder = new StatisticsRecorder(serviceTimeStatistics, samples, true);
    }
 
    @Override
    public void onServiceTimeSample(int run, long time, long serviceTime) {
-      this.statisticsRecorder.appendSample(time,serviceTime);
+      this.statisticsRecorder.appendSample(time, serviceTime);
    }
 
    @Override

@@ -45,21 +45,20 @@ final class TickerEventHistogramLatencyRecorder implements CloseableTickerEventL
       this.responseTimeHistogram = new Histogram(highestTrackableTimeInNanos, 2);
       this.waitTimeHistogram = new Histogram(highestTrackableTimeInNanos, 2);
       this.serviceTimeHistogram = new Histogram(highestTrackableTimeInNanos, 2);
-      this.responseTimeHistograms = new Histogram[runs+1];
-      this.waitTimeHistograms = new Histogram[runs+1];
-      this.serviceTimeHistograms = new Histogram[runs+1];
-      for(int i = 0;i<(runs+1);i++){
+      this.responseTimeHistograms = new Histogram[runs + 1];
+      this.waitTimeHistograms = new Histogram[runs + 1];
+      this.serviceTimeHistograms = new Histogram[runs + 1];
+      for (int i = 0; i < (runs + 1); i++) {
          this.serviceTimeHistograms[i] = serviceTimeHistogram.copy();
          this.waitTimeHistograms[i] = waitTimeHistogram.copy();
          this.responseTimeHistograms[i] = responseTimeHistogram.copy();
       }
    }
 
-
-   private static long min(long a,long b){
+   private static long min(long a, long b) {
       //isATheMinimum==ALL 1s <-> min(a,b)==a && isATheMinimum==0 <-> min(a,b)==b
-      final long isATheMinimum = (a-b)>>63;
-      final long min = (a&isATheMinimum)|(b&(~isATheMinimum));
+      final long isATheMinimum = (a - b) >> 63;
+      final long min = (a & isATheMinimum) | (b & (~isATheMinimum));
       return min;
    }
 
@@ -67,8 +66,6 @@ final class TickerEventHistogramLatencyRecorder implements CloseableTickerEventL
    public void onStartedRun(int run) {
       startTime = System.nanoTime();
    }
-
-
 
    @Override
    public void onServiceTimeSample(int run, long time, long serviceTime) {
@@ -89,11 +86,11 @@ final class TickerEventHistogramLatencyRecorder implements CloseableTickerEventL
    public void onFinishedRun(int run) {
       final long endTime = System.nanoTime();
       elapsedTimes[run] = endTime - startTime;
-      try{
+      try {
          serviceTimeHistogram.copyInto(serviceTimeHistograms[run]);
          waitTimeHistogram.copyInto(waitTimeHistograms[run]);
          responseTimeHistogram.copyInto(responseTimeHistograms[run]);
-      }finally{
+      } finally {
          serviceTimeHistogram.reset();
          waitTimeHistogram.reset();
          responseTimeHistogram.reset();
@@ -123,8 +120,7 @@ final class TickerEventHistogramLatencyRecorder implements CloseableTickerEventL
             waitTime.outputPercentileDistribution(out, 1000.0);
             out.println("********************\tEND RESULTS OF RUN " + i + "\t********************");
          }
-      }
-      catch (FileNotFoundException e) {
+      } catch (FileNotFoundException e) {
          throw new IllegalStateException(e);
       }
    }
