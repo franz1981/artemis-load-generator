@@ -18,6 +18,9 @@
 package org.apache.activemq.load.generator;
 
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -31,9 +34,10 @@ final class CloseableMessageListeners {
                                                int messageBytes,
                                                File consumerStatisticsFile,
                                                SampleMode consumerSampleMode,
+                                               OutputFormat latencyFormat,
                                                int iterations,
                                                int runs,
-                                               int warmupIterations) {
+                                               int warmupIterations) throws FileNotFoundException {
       final CloseableMessageListener messageListener;
       switch (consumerSampleMode) {
          case LossLess: {
@@ -44,7 +48,7 @@ final class CloseableMessageListeners {
          break;
          case Percentile: {
             final ByteBuffer consumerBuffer = ByteBuffer.allocate(messageBytes).order(ByteOrder.nativeOrder());
-            messageListener = new JmsMessageHistogramLatencyRecorder(consumerStatisticsFile, timeProvider, warmupIterations, runs, iterations, consumerBuffer);
+            messageListener = new JmsMessageHistogramLatencyRecorder(new PrintStream(new FileOutputStream(consumerStatisticsFile)), latencyFormat, timeProvider, warmupIterations, runs, iterations, consumerBuffer);
          }
          break;
          case None:

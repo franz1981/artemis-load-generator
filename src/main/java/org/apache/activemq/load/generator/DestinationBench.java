@@ -62,8 +62,7 @@ public class DestinationBench {
          }
       });
       reportingThread.setDaemon(true);
-      final String tmpDir = System.getProperty("java.io.tmpdir");
-      String outputDir = tmpDir;
+      File outputFile = null;
       boolean isWaitRate = false;
       int messageBytes = 100;
       int targetThoughput = 0;
@@ -73,8 +72,8 @@ public class DestinationBench {
       int waitSecondsBetweenIterations = 2;
       String destinationName = null;
       boolean askedForHelp = false;
-      SampleMode producerSampleMode = SampleMode.None;
-      SampleMode consumerSampleMode = SampleMode.LossLess;
+      SampleMode sampleMode = SampleMode.Percentile;
+      OutputFormat latencyFormat = OutputFormat.LONG;
       String url = null;
       TimeProvider timeProvider = TimeProvider.Nano;
       Delivery delivery = Delivery.NonPersistent;
@@ -111,13 +110,13 @@ public class DestinationBench {
                url = args[++i];
                break;
             case "--out":
-               outputDir = args[++i];
+               outputFile = new File(args[++i]);
                break;
-            case "--producer-sample":
-               producerSampleMode = SampleMode.valueOf(args[++i]);
+            case "--sample":
+               sampleMode = SampleMode.valueOf(args[++i]);
                break;
-            case "--consumer-sample":
-               consumerSampleMode = SampleMode.valueOf(args[++i]);
+            case "--format":
+               latencyFormat = OutputFormat.valueOf(args[++i]);
                break;
             case "--topic":
                isTopic = true;
@@ -166,7 +165,7 @@ public class DestinationBench {
          }
       }
       if (askedForHelp) {
-         final String validArgs = "\"[--protocol " + Arrays.toString(Protocol.values()) + "][--topic] [--wait-rate] [--persistent] [--time Nano|Millis] [--producer-sample " + Arrays.toString(SampleMode.values()) + "] [--consumer-sample " + Arrays.toString(SampleMode.values()) + "] [--out outputDir] [--url url] [--name destinationName] [--target targetThroughput] [--runs runs] " + "[--iterations iterations] [--warmup warmupIterations] [--bytes messageBytes] [--service-time fileName] [--wait waitSecondsBetweenIterations]\"";
+         final String validArgs = "\"[--protocol " + Arrays.toString(Protocol.values()) + "][--topic] [--wait-rate] [--persistent] [--time Nano|Millis] [--sample " + Arrays.toString(SampleMode.values()) + "] [--out outputFile] [--url url] [--name destinationName] [--target targetThroughput] [--runs runs] " + "[--iterations iterations] [--warmup warmupIterations] [--bytes messageBytes] [--wait waitSecondsBetweenIterations]\"";
          System.err.println("valid arguments = " + validArgs);
          if (args.length == 1) {
             return;
@@ -178,18 +177,12 @@ public class DestinationBench {
          shareConnection = true;
       }
       final long messages = ((iterations * runs) + warmupIterations);
-      final File producerStatisticsFile = StatisticsFileNaming.newStatisticsWith(outputDir, producerSampleMode, "producer");
-      final File consumerStatisticsFile = StatisticsFileNaming.newStatisticsWith(outputDir, consumerSampleMode, "consumer");
+      final File consumerStatisticsFile = outputFile;
       //SUMMARY OF CONFIGURATION
       System.out.println("*********\tCONFIGURATION SUMMARY\t*********");
       System.out.println("protocol = " + protocol);
       System.out.println("delivery = " + delivery);
-      System.out.println("outputDir = " + outputDir);
-      System.out.println("producer sample mode: " + producerSampleMode);
-      if (producerStatisticsFile != null) {
-         System.out.println("producer statistics file = " + producerStatisticsFile);
-      }
-      System.out.println("consumer sample mode: " + consumerSampleMode);
+      System.out.println("consumer sample mode: " + sampleMode);
       if (consumerStatisticsFile != null) {
          System.out.println("consumer statistics file = " + consumerStatisticsFile);
       }
@@ -242,7 +235,7 @@ public class DestinationBench {
             final CountDownLatch consumerReady = new CountDownLatch(1);
             final AtomicBoolean consumed = new AtomicBoolean(false);
 
-            try (final CloseableMessageListener messageListener = CloseableMessageListeners.with(timeProvider, messageBytes, consumerStatisticsFile, consumerSampleMode, iterations, runs, warmupIterations)) {
+            try (final CloseableMessageListener messageListener = CloseableMessageListeners.with(timeProvider, messageBytes, consumerStatisticsFile, sampleMode, latencyFormat, iterations, runs, warmupIterations)) {
                final Connection consumerConnection;
                if (!shareConnection) {
                   //do not share the connection/connectionFactory (like in a different process)
@@ -269,7 +262,7 @@ public class DestinationBench {
                   consumerReady.await();
                   reportingThread.start();
                   if (producer) {
-                     ProducerRunner.runJmsProducer(producerSession, timeProvider, messageBytes, destination, producerStatisticsFile, producerSampleMode, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate, delivery, sentMessages);
+                     ProducerRunner.runJmsProducer(producerSession, timeProvider, messageBytes, destination, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate, delivery, sentMessages);
                   }
                   while (!consumed.get()) {
                      LockSupport.parkNanos(1L);
@@ -284,7 +277,7 @@ public class DestinationBench {
          } else {
             reportingThread.start();
             if (producer) {
-               ProducerRunner.runJmsProducer(producerSession, timeProvider, messageBytes, destination, producerStatisticsFile, producerSampleMode, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate, delivery, sentMessages);
+               ProducerRunner.runJmsProducer(producerSession, timeProvider, messageBytes, destination, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate, delivery, sentMessages);
             }
          }
       } finally {

@@ -23,7 +23,6 @@ import javax.jms.Destination;
 import javax.jms.JMSException;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
-import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.concurrent.atomic.AtomicLong;
@@ -37,8 +36,6 @@ final class ProducerRunner {
                                      TimeProvider timeProvider,
                                      int messageBytes,
                                      Destination destination,
-                                     File statisticsFile,
-                                     SampleMode sampleMode,
                                      int targetThoughput,
                                      int iterations,
                                      int runs,
@@ -48,7 +45,7 @@ final class ProducerRunner {
                                      Delivery delivery,
                                      final AtomicLong sentMessages) {
       MessageProducer producer = null;
-      try (final CloseableTickerEventListener tickerEventListener = CloseableTickerEventListeners.with(statisticsFile, sampleMode, iterations, runs, warmupIterations)) {
+      try (final CloseableTickerEventListener tickerEventListener = CloseableTickerEventListener.blackHole()) {
          producer = session.createProducer(destination);
          producer.setDisableMessageTimestamp(true);
          switch (delivery) {

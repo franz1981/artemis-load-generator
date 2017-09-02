@@ -19,8 +19,6 @@ package org.apache.activemq.load.generator;
 
 import javax.jms.BytesMessage;
 import javax.jms.Message;
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
@@ -29,25 +27,92 @@ import org.HdrHistogram.Histogram;
 
 final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListener {
 
-   private final File outputFile;
-   private final TimeProvider timeProvider;
-   private final ByteBuffer contentBuffer;
-   private final int runs;
-   private final Histogram[] histograms;
-   private final long[] messagesLimit;
-   private final long highestTrackableValue;
-   private long messages;
-   private int currentIndex;
-   private Histogram currentHistogram;
-   private long currentMessageLimit;
-   private double outputValueUnitScalingRatio;
+   private static final class RunStatistics {
 
-   public JmsMessageHistogramLatencyRecorder(File outputFile,
+      private final int expectedMessages;
+      private long producerStart;
+      private long producerEnd;
+      private long consumerStart;
+      private long consumerEnd;
+      private int messages;
+      private final Histogram latencyHistogram;
+      private final TimeProvider timeProvider;
+
+      public RunStatistics(int expectedMessages, Histogram latencyHistogram, TimeProvider timeProvider) {
+         this.expectedMessages = expectedMessages;
+         this.latencyHistogram = latencyHistogram;
+         this.timeProvider = timeProvider;
+         this.messages = 0;
+      }
+
+      private boolean onMessage(final long produceTime) {
+         if (messages >= expectedMessages) {
+            throw new IllegalStateException("this run is full");
+         }
+         final long consumeTime = timeProvider.now();
+         if (messages == 0) {
+            latencyHistogram.setStartTimeStamp(System.currentTimeMillis());
+            this.producerStart = produceTime;
+            this.consumerStart = consumeTime;
+         }
+         final boolean lastMessage = messages == expectedMessages - 1;
+         if (lastMessage) {
+            latencyHistogram.setEndTimeStamp(System.currentTimeMillis());
+            this.producerEnd = produceTime;
+            this.consumerEnd = consumeTime;
+         }
+         final long elapsedTime = consumeTime - produceTime;
+         latencyHistogram.recordValue(elapsedTime);
+         messages++;
+         return !lastMessage;
+      }
+
+      private long calculateProducerThroughput(TimeUnit timeUnit) {
+         final long totalCount = latencyHistogram.getTotalCount();
+         if (totalCount != expectedMessages) {
+            throw new IllegalStateException("not available yet");
+         }
+         final long elapsedTime = producerEnd - producerStart;
+         final long throughput = (totalCount * (timeProvider.timeUnit().convert(1, timeUnit))) / elapsedTime;
+         return throughput;
+      }
+
+      private long calculateConsumerThroughput(TimeUnit timeUnit) {
+         final long totalCount = latencyHistogram.getTotalCount();
+         if (totalCount != expectedMessages) {
+            throw new IllegalStateException("not available yet");
+         }
+         final long elapsedTime = consumerEnd - consumerStart;
+         final long throughput = (totalCount * (timeProvider.timeUnit().convert(1, timeUnit))) / elapsedTime;
+         return throughput;
+      }
+
+      private long calculateEndToEndThroughput(TimeUnit timeUnit) {
+         final long totalCount = latencyHistogram.getTotalCount();
+         if (totalCount != expectedMessages) {
+            throw new IllegalStateException("not available yet");
+         }
+         final long elapsedTime = consumerEnd - producerStart;
+         final long throughput = (totalCount * (timeProvider.timeUnit().convert(1, timeUnit))) / elapsedTime;
+         return throughput;
+      }
+   }
+
+   private final PrintStream log;
+   private final ByteBuffer contentBuffer;
+   private final RunStatistics[] runStatistics;
+   private int currentRun;
+   private double outputValueUnitScalingRatio;
+   private final OutputFormat outputFormat;
+
+   public JmsMessageHistogramLatencyRecorder(PrintStream log,
+                                             OutputFormat outputFormat,
                                              TimeProvider timeProvider,
                                              int warmup,
                                              int runs,
                                              int iterations,
                                              ByteBuffer heapContentBuffer) {
+      this.outputFormat = outputFormat;
       final double outputValueUnitScalingRatio;
       switch (timeProvider) {
          case Nano:
@@ -60,71 +125,46 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
             throw new AssertionError("unsupported case!");
       }
       this.outputValueUnitScalingRatio = outputValueUnitScalingRatio;
-      this.outputFile = outputFile;
-      this.timeProvider = timeProvider;
-      this.runs = runs;
-      this.histograms = new Histogram[runs + 1];
-      this.messagesLimit = new long[runs + 1];
-      this.highestTrackableValue = timeProvider.timeUnit().convert(10, TimeUnit.SECONDS);
-      for (int i = 0; i < histograms.length; i++) {
-         final Histogram histogram = new Histogram(highestTrackableValue, 2);
-         histograms[i] = histogram;
-         messagesLimit[i] = warmup + (i * iterations);
+      this.log = log;
+      this.runStatistics = new RunStatistics[runs + 1];
+      final long highestTrackableValue = timeProvider.timeUnit().convert(10, TimeUnit.SECONDS);
+      this.runStatistics[0] = new RunStatistics(warmup, new Histogram(highestTrackableValue, 2), timeProvider);
+      for (int i = 1; i < (runs + 1); i++) {
+         this.runStatistics[i] = new RunStatistics(iterations, new Histogram(highestTrackableValue, 2), timeProvider);
       }
-      this.messages = 0;
+      this.currentRun = 0;
       this.contentBuffer = heapContentBuffer;
       if (!contentBuffer.hasArray()) {
          throw new IllegalArgumentException("content buffer must be on heap and writable!");
       }
-      this.currentIndex = 0;
-      this.currentHistogram = histograms[0];
-      this.currentMessageLimit = messagesLimit[0];
-   }
-
-   private static long min(long a, long b) {
-      //isATheMinimum==ALL 1s <-> min(a,b)==a && isATheMinimum==0 <-> min(a,b)==b
-      final long isATheMinimum = (a - b) >> 63;
-      final long min = (a & isATheMinimum) | (b & (~isATheMinimum));
-      return min;
    }
 
    @Override
    public void onMessage(Message message) {
       final long startTime = BytesMessageUtil.decodeTimestamp((BytesMessage) message, contentBuffer);
-      //include the decoding time
-      final long elapsedTime = min(timeProvider.now() - startTime, highestTrackableValue);
-      assert elapsedTime >= 0 : "time can't flow in the opposite direction";
-      if (messages < currentMessageLimit) {
-         currentHistogram.recordValue(elapsedTime);
-      } else {
-         final Histogram histogram = switchHistogram();
-         if (histogram != null) {
-            histogram.recordValue(elapsedTime);
-         }
-      }
-      messages++;
-   }
-
-   private Histogram switchHistogram() {
-      if (currentIndex == runs) {
-         return null;
-      } else {
-         currentIndex++;
-         currentHistogram = histograms[currentIndex];
-         currentMessageLimit = messagesLimit[currentIndex];
-         return currentHistogram;
+      //the first message arrived need to mark the current run
+      if (!this.runStatistics[currentRun].onMessage(startTime)) {
+         currentRun++;
       }
    }
 
    @Override
    public void close() {
-      try (PrintStream outputStream = new PrintStream(outputFile)) {
-
-         for (int i = 0; i < histograms.length; i++) {
-            histograms[i].outputPercentileDistribution(outputStream, outputValueUnitScalingRatio);
+      for (int i = 0; i < runStatistics.length; i++) {
+         final RunStatistics statistics = runStatistics[i];
+         log.println("**************");
+         if (i == 0) {
+            log.println("WARMUP");
+         } else {
+            log.println("RUN " + i);
          }
-      } catch (FileNotFoundException e) {
-         throw new IllegalStateException(e);
+         log.println("**************");
+         log.println("Producer Throughput: " + statistics.calculateProducerThroughput(TimeUnit.SECONDS) + " ops/sec");
+         log.println("Consumer Throughput: " + statistics.calculateConsumerThroughput(TimeUnit.SECONDS) + " ops/sec");
+         log.println("EndToEnd Throughput: " + statistics.calculateEndToEndThroughput(TimeUnit.SECONDS) + " ops/sec");
+         log.println("EndToEnd SERVICE-TIME Latencies distribution in " + TimeUnit.MICROSECONDS);
+         outputFormat.output(statistics.latencyHistogram, log, this.outputValueUnitScalingRatio);
       }
+      log.close();
    }
 }

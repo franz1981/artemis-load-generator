@@ -8,6 +8,7 @@
     </JAVADOC>
     <SOURCES>
       <root url="jar://$MAVEN_REPOSITORY$/org/apache/qpid/qpid-jms-client/0.23.0/qpid-jms-client-0.23.0-sources.jar!/" />
+      <root url="file://$MAVEN_REPOSITORY$/org/apache/qpid/qpid-jms-client/0.24.0" />
     </SOURCES>
   </library>
 </component>
