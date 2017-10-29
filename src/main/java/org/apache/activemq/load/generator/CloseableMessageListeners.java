@@ -23,6 +23,7 @@ import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.function.Consumer;
 
 final class CloseableMessageListeners {
 
@@ -37,7 +38,8 @@ final class CloseableMessageListeners {
                                                OutputFormat latencyFormat,
                                                int iterations,
                                                int runs,
-                                               int warmupIterations) throws FileNotFoundException {
+                                               int warmupIterations,
+                                               Consumer<? super JmsMessageHistogramLatencyRecorder.BenchmarkResult> onResult) throws FileNotFoundException {
       final CloseableMessageListener messageListener;
       switch (consumerSampleMode) {
          case LossLess: {
@@ -48,7 +50,11 @@ final class CloseableMessageListeners {
          break;
          case Percentile: {
             final ByteBuffer consumerBuffer = ByteBuffer.allocate(messageBytes).order(ByteOrder.nativeOrder());
-            messageListener = new JmsMessageHistogramLatencyRecorder(new PrintStream(new FileOutputStream(consumerStatisticsFile)), latencyFormat, timeProvider, warmupIterations, runs, iterations, consumerBuffer);
+            PrintStream log = null;
+            if (consumerStatisticsFile != null) {
+               log = new PrintStream(new FileOutputStream(consumerStatisticsFile));
+            }
+            messageListener = new JmsMessageHistogramLatencyRecorder(log, latencyFormat, timeProvider, warmupIterations, runs, iterations, consumerBuffer, onResult);
          }
          break;
          case None:

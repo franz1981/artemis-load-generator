@@ -22,10 +22,38 @@ import javax.jms.Message;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 import org.HdrHistogram.Histogram;
 
 final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListener {
+
+   public static final class BenchmarkResult {
+
+      public final long[] producerThroughput;
+      public final long[] consumerThroughput;
+      public final long[] endToEndThroughput;
+      public final TimeUnit throughputTimeUnit;
+      public final Histogram[] latencyHistograms;
+      public double outputValueUnitScalingRatio;
+      public final TimeUnit latencyTimeUnit;
+
+      public BenchmarkResult(long producerThroughput[],/**/
+                             long consumerThroughput[],
+                             long endToEndThroughput[],
+                             TimeUnit throughputTimeUnit,
+                             Histogram[] latencyHistograms,
+                             double outputValueUnitScalingRatio,
+                             TimeUnit latencyTimeUnit) {
+         this.producerThroughput = producerThroughput;
+         this.consumerThroughput = consumerThroughput;
+         this.endToEndThroughput = endToEndThroughput;
+         this.throughputTimeUnit = throughputTimeUnit;
+         this.latencyHistograms = latencyHistograms;
+         this.outputValueUnitScalingRatio = outputValueUnitScalingRatio;
+         this.latencyTimeUnit = latencyTimeUnit;
+      }
+   }
 
    private static final class RunStatistics {
 
@@ -104,6 +132,7 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
    private int currentRun;
    private double outputValueUnitScalingRatio;
    private final OutputFormat outputFormat;
+   private final Consumer<? super BenchmarkResult> onResult;
 
    public JmsMessageHistogramLatencyRecorder(PrintStream log,
                                              OutputFormat outputFormat,
@@ -111,8 +140,10 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
                                              int warmup,
                                              int runs,
                                              int iterations,
-                                             ByteBuffer heapContentBuffer) {
+                                             ByteBuffer heapContentBuffer,
+                                             Consumer<? super BenchmarkResult> onResult) {
       this.outputFormat = outputFormat;
+      this.onResult = onResult;
       final double outputValueUnitScalingRatio;
       switch (timeProvider) {
          case Nano:
@@ -150,21 +181,37 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
 
    @Override
    public void close() {
-      for (int i = 0; i < runStatistics.length; i++) {
-         final RunStatistics statistics = runStatistics[i];
-         log.println("**************");
-         if (i == 0) {
-            log.println("WARMUP");
-         } else {
-            log.println("RUN " + i);
+      if (log != null) {
+         for (int i = 0; i < runStatistics.length; i++) {
+            final RunStatistics statistics = runStatistics[i];
+            log.println("**************");
+            if (i == 0) {
+               log.println("WARMUP");
+            } else {
+               log.println("RUN " + i);
+            }
+            log.println("**************");
+            log.println("Producer Throughput: " + statistics.calculateProducerThroughput(TimeUnit.SECONDS) + " ops/sec");
+            log.println("Consumer Throughput: " + statistics.calculateConsumerThroughput(TimeUnit.SECONDS) + " ops/sec");
+            log.println("EndToEnd Throughput: " + statistics.calculateEndToEndThroughput(TimeUnit.SECONDS) + " ops/sec");
+            log.println("EndToEnd SERVICE-TIME Latencies distribution in " + TimeUnit.MICROSECONDS);
+            outputFormat.output(statistics.latencyHistogram, log, this.outputValueUnitScalingRatio);
          }
-         log.println("**************");
-         log.println("Producer Throughput: " + statistics.calculateProducerThroughput(TimeUnit.SECONDS) + " ops/sec");
-         log.println("Consumer Throughput: " + statistics.calculateConsumerThroughput(TimeUnit.SECONDS) + " ops/sec");
-         log.println("EndToEnd Throughput: " + statistics.calculateEndToEndThroughput(TimeUnit.SECONDS) + " ops/sec");
-         log.println("EndToEnd SERVICE-TIME Latencies distribution in " + TimeUnit.MICROSECONDS);
-         outputFormat.output(statistics.latencyHistogram, log, this.outputValueUnitScalingRatio);
+         log.close();
       }
-      log.close();
+      if (this.onResult != null) {
+         final long[] producerThroughput = new long[runStatistics.length];
+         final long[] consumerThroughput = new long[runStatistics.length];
+         final long[] endToEndThroughput = new long[runStatistics.length];
+         final Histogram[] latencyHistograms = new Histogram[runStatistics.length];
+         for (int i = 0; i < runStatistics.length; i++) {
+            final RunStatistics statistics = runStatistics[i];
+            producerThroughput[i] = statistics.calculateProducerThroughput(TimeUnit.SECONDS);
+            consumerThroughput[i] = statistics.calculateConsumerThroughput(TimeUnit.SECONDS);
+            endToEndThroughput[i] = statistics.calculateEndToEndThroughput(TimeUnit.SECONDS);
+            latencyHistograms[i] = statistics.latencyHistogram;
+         }
+         onResult.accept(new BenchmarkResult(producerThroughput, consumerThroughput, endToEndThroughput, TimeUnit.SECONDS, latencyHistograms, outputValueUnitScalingRatio, TimeUnit.MICROSECONDS));
+      }
    }
 }
