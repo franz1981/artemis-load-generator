@@ -17,7 +17,6 @@
 
 package org.apache.activemq.load.generator;
 
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
@@ -31,30 +30,23 @@ final class CloseableMessageListeners {
 
    }
 
-   public static CloseableMessageListener with(TimeProvider timeProvider,
-                                               int messageBytes,
-                                               File consumerStatisticsFile,
-                                               SampleMode consumerSampleMode,
-                                               OutputFormat latencyFormat,
-                                               int iterations,
-                                               int runs,
-                                               int warmupIterations,
+   public static CloseableMessageListener with(DestinationBench.BenchmarkConfiguration conf,
                                                Consumer<? super JmsMessageHistogramLatencyRecorder.BenchmarkResult> onResult) throws FileNotFoundException {
       final CloseableMessageListener messageListener;
-      switch (consumerSampleMode) {
+      switch (conf.sampleMode) {
          case LossLess: {
-            final long messages = ((iterations * runs) + warmupIterations);
-            final ByteBuffer consumerBuffer = ByteBuffer.allocate(messageBytes).order(ByteOrder.nativeOrder());
-            messageListener = new JmsMessageLossLessLatencyRecorder(consumerStatisticsFile, timeProvider, messages, consumerBuffer);
+            final long messages = conf.messages;
+            final ByteBuffer consumerBuffer = ByteBuffer.allocate(conf.messageBytes).order(ByteOrder.nativeOrder());
+            messageListener = new JmsMessageLossLessLatencyRecorder(conf.outputFile, conf.timeProvider, messages, consumerBuffer);
          }
          break;
          case Percentile: {
-            final ByteBuffer consumerBuffer = ByteBuffer.allocate(messageBytes).order(ByteOrder.nativeOrder());
+            final ByteBuffer consumerBuffer = ByteBuffer.allocate(conf.messageBytes).order(ByteOrder.nativeOrder());
             PrintStream log = null;
-            if (consumerStatisticsFile != null) {
-               log = new PrintStream(new FileOutputStream(consumerStatisticsFile));
+            if (conf.outputFile != null) {
+               log = new PrintStream(new FileOutputStream(conf.outputFile));
             }
-            messageListener = new JmsMessageHistogramLatencyRecorder(log, latencyFormat, timeProvider, warmupIterations, runs, iterations, consumerBuffer, onResult);
+            messageListener = new JmsMessageHistogramLatencyRecorder(conf.timeProvider, conf.warmupIterations, conf.runs, conf.iterations, consumerBuffer, onResult);
          }
          break;
          case None:

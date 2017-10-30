@@ -24,7 +24,7 @@ import javax.jms.MessageConsumer;
 import javax.jms.MessageListener;
 import javax.jms.Session;
 import javax.jms.Topic;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.agrona.concurrent.Agent;
@@ -36,7 +36,7 @@ final class JmsConsumerAgent implements Agent {
    private final MessageListener messageListener;
    private final int messageBatchLimit;
    private final long messageCount;
-   private final AtomicBoolean onMessageCount;
+   private final CountDownLatch onMessageCount;
    private final boolean blockingRead;
    private long sequence;
    private final AtomicLong receivedMessages;
@@ -47,7 +47,7 @@ final class JmsConsumerAgent implements Agent {
                            final MessageListener messageListener,
                            final int messageBatchLimit,
                            final long messageCount,
-                           final AtomicBoolean onMessageCount,
+                           final CountDownLatch onMessageCount,
                            final boolean blockingRead,
                            final String durableName,
                            final AtomicLong receivedMessages) {
@@ -93,7 +93,7 @@ final class JmsConsumerAgent implements Agent {
             messageListener.onMessage(message);
             sequence++;
             if (sequence == this.messageCount) {
-               onMessageCount.lazySet(true);
+               onMessageCount.countDown();
                return i;
             }
          }

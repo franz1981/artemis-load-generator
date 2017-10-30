@@ -32,23 +32,15 @@ final class ProducerRunner {
    private ProducerRunner() {
    }
 
-   public static void runJmsProducer(Session session,
-                                     TimeProvider timeProvider,
-                                     int messageBytes,
+   public static void runJmsProducer(DestinationBench.BenchmarkConfiguration conf,
+                                     Session session,
                                      Destination destination,
-                                     int targetThoughput,
-                                     int iterations,
-                                     int runs,
-                                     int warmupIterations,
-                                     int waitSecondsBetweenIterations,
-                                     boolean isWaitRate,
-                                     Delivery delivery,
                                      final AtomicLong sentMessages) {
       MessageProducer producer = null;
       try (final CloseableTickerEventListener tickerEventListener = CloseableTickerEventListener.blackHole()) {
          producer = session.createProducer(destination);
          producer.setDisableMessageTimestamp(true);
-         switch (delivery) {
+         switch (conf.delivery) {
             case Persistent:
                producer.setDeliveryMode(DeliveryMode.PERSISTENT);
                break;
@@ -59,11 +51,11 @@ final class ProducerRunner {
                throw new AssertionError("unsupported case!");
          }
          final BytesMessage message = session.createBytesMessage();
-         final ByteBuffer clientContent = ByteBuffer.allocate(messageBytes).order(ByteOrder.nativeOrder());
+         final ByteBuffer clientContent = ByteBuffer.allocate(conf.messageBytes).order(ByteOrder.nativeOrder());
          final Ticker ticker;
          final Ticker.ServiceAction serviceAction;
          final MessageProducer localProducer = producer;
-         switch (timeProvider) {
+         switch (conf.timeProvider) {
             case Nano:
                serviceAction = (intendedStartTime, startServiceTime) -> {
                   try {
@@ -92,10 +84,10 @@ final class ProducerRunner {
             default:
                throw new AssertionError("unsupported case!");
          }
-         if (targetThoughput > 0) {
-            ticker = Ticker.responseUnderLoadBenchmark(serviceAction, tickerEventListener, targetThoughput, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate);
+         if (conf.targetThoughput > 0) {
+            ticker = Ticker.responseUnderLoadBenchmark(serviceAction, tickerEventListener, conf.targetThoughput, conf.iterations, conf.runs, conf.warmupIterations, conf.waitSecondsBetweenIterations, conf.isWaitRate);
          } else {
-            ticker = Ticker.throughputBenchmark(serviceAction, tickerEventListener, iterations, runs, warmupIterations, waitSecondsBetweenIterations, isWaitRate);
+            ticker = Ticker.throughputBenchmark(serviceAction, tickerEventListener, conf.iterations, conf.runs, conf.warmupIterations, conf.waitSecondsBetweenIterations, conf.isWaitRate);
          }
          ticker.run();
       } catch (JMSException e) {
