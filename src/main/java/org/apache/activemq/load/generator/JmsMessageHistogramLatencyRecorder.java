@@ -34,14 +34,16 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
       public final long[] producerThroughput;
       public final long[] consumerThroughput;
       public final long[] endToEndThroughput;
+      public final long[] tooHighSamples;
       public final TimeUnit throughputTimeUnit;
       public final Histogram[] latencyHistograms;
       public double outputValueUnitScalingRatio;
       public final TimeUnit latencyTimeUnit;
 
-      private BenchmarkResult(long producerThroughput[],
-                              long consumerThroughput[],
-                              long endToEndThroughput[],
+      private BenchmarkResult(long[] producerThroughput,
+                              long[] consumerThroughput,
+                              long[] endToEndThroughput,
+                              long[] tooHighSamples,
                               TimeUnit throughputTimeUnit,
                               Histogram[] latencyHistograms,
                               double outputValueUnitScalingRatio,
@@ -49,6 +51,7 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
          this.producerThroughput = producerThroughput;
          this.consumerThroughput = consumerThroughput;
          this.endToEndThroughput = endToEndThroughput;
+         this.tooHighSamples = tooHighSamples;
          this.throughputTimeUnit = throughputTimeUnit;
          this.latencyHistograms = latencyHistograms;
          this.outputValueUnitScalingRatio = outputValueUnitScalingRatio;
@@ -59,21 +62,24 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
          final long[] producerThroughput = new long[runStatistics.length];
          final long[] consumerThroughput = new long[runStatistics.length];
          final long[] endToEndThroughput = new long[runStatistics.length];
+         final long[] tooHighSamples = new long[runStatistics.length];
          final Histogram[] latencyHistograms = new Histogram[runStatistics.length];
          for (int i = 0; i < runStatistics.length; i++) {
             final RunStatistics statistics = runStatistics[i];
             producerThroughput[i] = statistics.calculateProducerThroughput(TimeUnit.SECONDS);
             consumerThroughput[i] = statistics.calculateConsumerThroughput(TimeUnit.SECONDS);
             endToEndThroughput[i] = statistics.calculateEndToEndThroughput(TimeUnit.SECONDS);
+            tooHighSamples[i] = statistics.tooHighSamples;
             latencyHistograms[i] = statistics.latencyHistogram;
          }
-         return new BenchmarkResult(producerThroughput, consumerThroughput, endToEndThroughput, TimeUnit.SECONDS, latencyHistograms, outputValueUnitScalingRatio, TimeUnit.MICROSECONDS);
+         return new BenchmarkResult(producerThroughput, consumerThroughput, endToEndThroughput, tooHighSamples, TimeUnit.SECONDS, latencyHistograms, outputValueUnitScalingRatio, TimeUnit.MICROSECONDS);
       }
 
       public static BenchmarkResult merge(BenchmarkResult[] results, int totalRuns) {
-         final long producerThroughputs[] = new long[totalRuns];
-         final long consumerThroughputs[] = new long[totalRuns];
-         final long endToEndThroughputs[] = new long[totalRuns];
+         final long[] producerThroughputs = new long[totalRuns];
+         final long[] consumerThroughputs = new long[totalRuns];
+         final long[] endToEndThroughputs = new long[totalRuns];
+         final long[] tooHighSamples = new long[totalRuns];
          final TimeUnit throughputTimeUnit = results[0].throughputTimeUnit;
          final Histogram[] latencyHistograms = new Histogram[totalRuns];
          final double outputValueUnitScalingRatio = results[0].outputValueUnitScalingRatio;
@@ -82,22 +88,29 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
             long producerThroughput = 0;
             long consumerThroughput = 0;
             long endToEndThroughput = 0;
+            long tooHighSample = 0;
             final Histogram latencyHistogram = new Histogram(2);
+            long maxDuration = Long.MIN_VALUE;
             for (int f = 0; f < results.length; f++) {
                final BenchmarkResult result = results[f];
                producerThroughput += result.producerThroughput[r];
                consumerThroughput += result.consumerThroughput[r];
                endToEndThroughput += result.endToEndThroughput[r];
+               tooHighSample += result.tooHighSamples[r];
                final Histogram histogram = result.latencyHistograms[r];
                latencyHistogram.add(histogram);
-               System.out.println("[" + (f + 1) + "] - " + new Date(histogram.getStartTimeStamp()) + " - " + (r == 0 ? "warmup" : ("run " + r)) + " duration:\t" + (histogram.getEndTimeStamp() - histogram.getStartTimeStamp()) + " ms");
+               final long duration = histogram.getEndTimeStamp() - histogram.getStartTimeStamp();
+               maxDuration = Math.max(maxDuration, duration);
+               System.out.println("[" + (f + 1) + "] - " + new Date(histogram.getStartTimeStamp()) + " - " + (r == 0 ? "warmup" : ("run " + r)) + " duration:\t" + duration + " ms");
             }
+            System.out.println((r == 0 ? "WARMUP" : ("RUN " + r)) + " MAX DURATION: " + maxDuration + " ms");
             producerThroughputs[r] = producerThroughput;
             consumerThroughputs[r] = consumerThroughput;
             endToEndThroughputs[r] = endToEndThroughput;
             latencyHistograms[r] = latencyHistogram;
+            tooHighSamples[r] = tooHighSample;
          }
-         final JmsMessageHistogramLatencyRecorder.BenchmarkResult benchmarkResult = new JmsMessageHistogramLatencyRecorder.BenchmarkResult(producerThroughputs, consumerThroughputs, endToEndThroughputs, throughputTimeUnit, latencyHistograms, outputValueUnitScalingRatio, latencyTimeUnit);
+         final JmsMessageHistogramLatencyRecorder.BenchmarkResult benchmarkResult = new JmsMessageHistogramLatencyRecorder.BenchmarkResult(producerThroughputs, consumerThroughputs, endToEndThroughputs, tooHighSamples, throughputTimeUnit, latencyHistograms, outputValueUnitScalingRatio, latencyTimeUnit);
          return benchmarkResult;
       }
 
@@ -113,6 +126,9 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
             log.println("Producer Throughput: " + this.producerThroughput[i] + " ops/sec");
             log.println("Consumer Throughput: " + this.consumerThroughput[i] + " ops/sec");
             log.println("EndToEnd Throughput: " + this.endToEndThroughput[i] + " ops/sec");
+            if (this.tooHighSamples[i] > 0) {
+               log.println("Samples too high: " + this.tooHighSamples[i]);
+            }
             log.println("EndToEnd SERVICE-TIME Latencies distribution in " + TimeUnit.MICROSECONDS);
             outputFormat.output(latencyHistograms[i], log, this.outputValueUnitScalingRatio);
          }
@@ -129,12 +145,14 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
       private int messages;
       private final Histogram latencyHistogram;
       private final TimeProvider timeProvider;
+      private long tooHighSamples;
 
       public RunStatistics(int expectedMessages, Histogram latencyHistogram, TimeProvider timeProvider) {
          this.expectedMessages = expectedMessages;
          this.latencyHistogram = latencyHistogram;
          this.timeProvider = timeProvider;
          this.messages = 0;
+         this.tooHighSamples = 0;
       }
 
       private boolean onMessage(final long produceTime) {
@@ -143,7 +161,14 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
          }
          final long consumeTime = timeProvider.now();
          final long elapsedTime = consumeTime - produceTime;
-         latencyHistogram.recordValue(elapsedTime);
+         final long normalizedElapsedTime;
+         if (elapsedTime > latencyHistogram.getHighestTrackableValue()) {
+            normalizedElapsedTime = latencyHistogram.getHighestTrackableValue();
+            this.tooHighSamples++;
+         } else {
+            normalizedElapsedTime = elapsedTime;
+         }
+         latencyHistogram.recordValue(normalizedElapsedTime);
          if (messages == 0) {
             if (timeProvider.timeUnit() == TimeUnit.MILLISECONDS) {
                latencyHistogram.setStartTimeStamp(produceTime);

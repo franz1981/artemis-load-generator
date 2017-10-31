@@ -88,7 +88,7 @@ public class DestinationBench {
       int warmupIterations = 20_000;
       int iterations = 20_000;
       //1 queue for each 1 producer/consumer pairs
-      int partitions = 1;
+      int partitions = -1;
       int waitSecondsBetweenIterations = 2;
       String destinationName = null;
       SampleMode sampleMode = SampleMode.Percentile;
@@ -198,6 +198,9 @@ public class DestinationBench {
                   throw new AssertionError("Invalid args: " + args[i] + " try --help");
             }
          }
+         if (partitions <= 0) {
+            partitions = forks;
+         }
          //force shared connection to be true when temp queues/topics
          if (isTemp) {
             //force a shared connection
@@ -306,9 +309,9 @@ public class DestinationBench {
       try {
          final String forkedDestinationName;
          if (conf.forks > 1) {
+            //parition the forks in order to distribute the destinations
             final int nameIndex = forkIndex % conf.partitions;
             forkedDestinationName = conf.destinationName + "_" + nameIndex;
-            System.out.println("Bounded destination [" + forkedDestinationName + "] -> [" + forkIndex + "] fork");
          } else {
             forkedDestinationName = conf.destinationName;
          }
