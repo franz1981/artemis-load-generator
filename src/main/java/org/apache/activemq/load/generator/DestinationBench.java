@@ -50,7 +50,9 @@ public class DestinationBench {
       return total;
    }
 
-   private static Thread createReportingThreadOf(AtomicLong[] sentMessages, AtomicLong[] receivedMessages) {
+   private static Thread createReportingThreadOf(AtomicLong[] sentMessages,
+                                                 AtomicLong[] receivedMessages,
+                                                 boolean refresh) {
       final Thread reportingThread = new Thread(() -> {
          long lastSentMessages = total(sentMessages);
          long lastReceivedMessages = total(receivedMessages);
@@ -63,7 +65,9 @@ public class DestinationBench {
             final long receivedNow = total(receivedMessages);
             final long sent = sentNow - lastSentMessages;
             final long received = receivedNow - lastReceivedMessages;
-            System.out.print("\033[H\033[2J");
+            if (refresh) {
+               System.out.print("\033[H\033[2J");
+            }
             System.out.format("Duration %dms - Sent %,d msg - Received %,d msg%n", elapsed, sent, received);
             lastSentMessages = sentNow;
             lastReceivedMessages = receivedNow;
@@ -83,6 +87,8 @@ public class DestinationBench {
       int runs = 5;
       int warmupIterations = 20_000;
       int iterations = 20_000;
+      //1 queue for each 1 producer/consumer pairs
+      int partitions = 1;
       int waitSecondsBetweenIterations = 2;
       String destinationName = null;
       SampleMode sampleMode = SampleMode.Percentile;
@@ -100,6 +106,7 @@ public class DestinationBench {
       String durableName = null;
       int forks = 1;
       long messages = ((iterations * runs) + warmupIterations);
+      boolean refresh = false;
 
       boolean read(String[] args) {
          boolean askedForHelp = false;
@@ -111,6 +118,9 @@ public class DestinationBench {
                   break;
                case "--no-producer":
                   producer = false;
+                  break;
+               case "--refresh":
+                  refresh = true;
                   break;
                case "--no-consumer":
                   consumer = false;
@@ -126,6 +136,9 @@ public class DestinationBench {
                   break;
                case "--url":
                   url = args[++i];
+                  break;
+               case "--partitions":
+                  partitions = Integer.parseInt(args[++i]);
                   break;
                case "--out":
                   outputFile = new File(args[++i]);
@@ -193,7 +206,7 @@ public class DestinationBench {
          //refresh messages
          messages = ((iterations * runs) + warmupIterations);
          if (askedForHelp) {
-            final String validArgs = "\"[--protocol " + Arrays.toString(Protocol.values()) + "][--topic] [--wait-rate] [--persistent] [--time Nano|Millis] [--sample " + Arrays.toString(SampleMode.values()) + "] [--out outputFile] [--url url] [--name destinationName] [--target targetThroughput] [--runs runs] " + "[--iterations iterations] [--warmup warmupIterations] [--bytes messageBytes] [--wait waitSecondsBetweenIterations]\"";
+            final String validArgs = "\"[--protocol " + Arrays.toString(Protocol.values()) + "][--topic] [--wait-rate] [--persistent] [--time Nano|Millis] [--sample " + Arrays.toString(SampleMode.values()) + "] [--out outputFile] [--url url] [--name destinationName] [--target targetThroughput] [--runs runs] " + "[--iterations iterations] [--warmup warmupIterations] [--bytes messageBytes] [--wait waitSecondsBetweenIterations] [--forks numberOfForks] [--partitions numberOfDestinations] [--refresh]\"";
             System.err.println("valid arguments = " + validArgs);
             return false;
          }
@@ -247,7 +260,7 @@ public class DestinationBench {
          sentMessages[i] = new AtomicLong(0);
          receivedMessages[i] = new AtomicLong(0);
       }
-      final Thread reportingThread = createReportingThreadOf(sentMessages, receivedMessages);
+      final Thread reportingThread = createReportingThreadOf(sentMessages, receivedMessages, conf.refresh);
       reportingThread.start();
       final Thread[] producerRunners = new Thread[conf.forks];
       final JmsMessageHistogramLatencyRecorder.BenchmarkResult[] results = new JmsMessageHistogramLatencyRecorder.BenchmarkResult[conf.forks];
@@ -255,86 +268,7 @@ public class DestinationBench {
       for (int i = 0; i < conf.forks; i++) {
          final int forkIndex = i;
          producerRunners[i] = new Thread(() -> {
-            try {
-               String forkedDestinationName = conf.destinationName;
-               Consumer<? super JmsMessageHistogramLatencyRecorder.BenchmarkResult> onResult = null;
-               if (conf.forks > 1) {
-                  forkedDestinationName = conf.destinationName + "_" + forkIndex;
-               }
-               onResult = result -> results[forkIndex] = result;
-               final ConnectionFactory connectionFactory = conf.protocol.createConnectionFactory(conf.url);
-               final Connection connection = connectionFactory.createConnection();
-               final Session producerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-               final Destination destination;
-               if (!conf.isTemp) {
-                  if (conf.isTopic) {
-                     destination = conf.protocol.createTopic(forkedDestinationName);
-                  } else {
-                     destination = conf.protocol.createQueue(forkedDestinationName);
-                  }
-               } else {
-                  if (conf.isTopic) {
-                     destination = producerSession.createTemporaryTopic();
-                  } else {
-                     destination = producerSession.createTemporaryQueue();
-                  }
-               }
-               if (conf.shareConnection && conf.durableName != null) {
-                  connection.setClientID(conf.durableName);
-               }
-               connection.start();
-               try {
-                  if (conf.consumer) {
-                     final CountDownLatch consumed = new CountDownLatch(1);
-
-                     try (final CloseableMessageListener messageListener = CloseableMessageListeners.with(conf, onResult)) {
-                        final Connection consumerConnection;
-                        if (!conf.shareConnection) {
-                           //do not share the connection/connectionFactory (like in a different process)
-                           final ConnectionFactory consumerConnectionFactory = conf.protocol.createConnectionFactory(conf.url);
-                           consumerConnection = consumerConnectionFactory.createConnection();
-                           if (conf.durableName != null) {
-                              consumerConnection.setClientID(conf.durableName);
-                           }
-                           consumerConnection.start();
-                        } else {
-                           consumerConnection = connection;
-                        }
-                        final Session consumerSession = consumerConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                        final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer@" + forkedDestinationName, consumerSession, destination, messageListener, Integer.MAX_VALUE, conf.messages, consumed, conf.blockingRead, conf.durableName, receivedMessages[forkIndex]);
-                        try (final AgentRunner consumerRunner = new AgentRunner(new BusySpinIdleStrategy(), System.err::println, null, jmsConsumerAgent)) {
-                           final Thread consumerThread = new Thread(() -> {
-                              try (AffinityLock affinityLock = AffinityLock.acquireLock()) {
-                                 consumersReady.countDown();
-                                 consumerRunner.run();
-                              }
-                           });
-                           consumerThread.start();
-                           //start producers only when all the consumers are ready
-                           consumersReady.await();
-                           if (conf.producer) {
-                              ProducerRunner.runJmsProducer(conf, producerSession, destination, sentMessages[forkIndex]);
-                           }
-                           consumed.await();
-                        } finally {
-                           CloseableHelper.quietClose(consumerSession);
-                           if (!conf.shareConnection) {
-                              CloseableHelper.quietClose(consumerConnection);
-                           }
-                        }
-                     }
-                  } else {
-                     if (conf.producer) {
-                        ProducerRunner.runJmsProducer(conf, producerSession, destination, sentMessages[forkIndex]);
-                     }
-                  }
-               } finally {
-                  CloseableHelper.quietClose(producerSession);
-                  CloseableHelper.quietClose(connection);
-               }
-            } catch (Throwable t) {
-               t.printStackTrace();
-            }
+            runFork(conf, forkIndex, results, consumersReady, sentMessages[forkIndex], receivedMessages[forkIndex]);
          });
       }
       //start the forks
@@ -360,6 +294,96 @@ public class DestinationBench {
       benchmarkResult.print(log, conf.latencyFormat);
       if (conf.outputFile != null) {
          log.close();
+      }
+   }
+
+   private static void runFork(BenchmarkConfiguration conf,
+                               int forkIndex,
+                               JmsMessageHistogramLatencyRecorder.BenchmarkResult[] results,
+                               CountDownLatch consumersReady,
+                               AtomicLong sentMessages,
+                               AtomicLong receivedMessages) {
+      try {
+         final String forkedDestinationName;
+         if (conf.forks > 1) {
+            final int nameIndex = forkIndex % conf.partitions;
+            forkedDestinationName = conf.destinationName + "_" + nameIndex;
+            System.out.println("Bounded destination [" + forkedDestinationName + "] -> [" + forkIndex + "] fork");
+         } else {
+            forkedDestinationName = conf.destinationName;
+         }
+         final Consumer<? super JmsMessageHistogramLatencyRecorder.BenchmarkResult> onResult = result -> results[forkIndex] = result;
+         final ConnectionFactory connectionFactory = conf.protocol.createConnectionFactory(conf.url);
+         final Connection connection = connectionFactory.createConnection();
+         final Session producerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+         final Destination destination;
+         if (!conf.isTemp) {
+            if (conf.isTopic) {
+               destination = conf.protocol.createTopic(forkedDestinationName);
+            } else {
+               destination = conf.protocol.createQueue(forkedDestinationName);
+            }
+         } else {
+            if (conf.isTopic) {
+               destination = producerSession.createTemporaryTopic();
+            } else {
+               destination = producerSession.createTemporaryQueue();
+            }
+         }
+         if (conf.shareConnection && conf.durableName != null) {
+            connection.setClientID(conf.durableName);
+         }
+         connection.start();
+         try {
+            if (conf.consumer) {
+               final CountDownLatch consumed = new CountDownLatch(1);
+               try (final CloseableMessageListener messageListener = CloseableMessageListeners.with(conf, onResult)) {
+                  final Connection consumerConnection;
+                  if (!conf.shareConnection) {
+                     //do not share the connection/connectionFactory (like in a different process)
+                     final ConnectionFactory consumerConnectionFactory = conf.protocol.createConnectionFactory(conf.url);
+                     consumerConnection = consumerConnectionFactory.createConnection();
+                     if (conf.durableName != null) {
+                        consumerConnection.setClientID(conf.durableName);
+                     }
+                     consumerConnection.start();
+                  } else {
+                     consumerConnection = connection;
+                  }
+                  final Session consumerSession = consumerConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+                  final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer@" + forkedDestinationName, consumerSession, destination, messageListener, Integer.MAX_VALUE, conf.messages, consumed, conf.blockingRead, conf.durableName, receivedMessages);
+                  try (final AgentRunner consumerRunner = new AgentRunner(new BusySpinIdleStrategy(), System.err::println, null, jmsConsumerAgent)) {
+                     final Thread consumerThread = new Thread(() -> {
+                        try (AffinityLock affinityLock = AffinityLock.acquireLock()) {
+                           consumersReady.countDown();
+                           consumerRunner.run();
+                        }
+                     });
+                     consumerThread.start();
+                     //start producers only when all the consumers are ready
+                     consumersReady.await();
+                     if (conf.producer) {
+                        ProducerRunner.runJmsProducer(conf, producerSession, destination, sentMessages);
+                     }
+                     consumed.await();
+                  } finally {
+                     CloseableHelper.quietClose(consumerSession);
+                     if (!conf.shareConnection) {
+                        CloseableHelper.quietClose(consumerConnection);
+                     }
+                  }
+               }
+            } else {
+               if (conf.producer) {
+                  ProducerRunner.runJmsProducer(conf, producerSession, destination, sentMessages);
+               }
+            }
+         } finally {
+            CloseableHelper.quietClose(producerSession);
+            CloseableHelper.quietClose(connection);
+         }
+      } catch (Throwable t) {
+         t.printStackTrace();
       }
    }
 
