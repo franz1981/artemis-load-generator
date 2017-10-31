@@ -35,9 +35,10 @@ final class ProducerRunner {
    public static void runJmsProducer(DestinationBench.BenchmarkConfiguration conf,
                                      Session session,
                                      Destination destination,
-                                     final AtomicLong sentMessages) {
+                                     final AtomicLong sentMessages,
+                                     CloseableTickerEventListener eventListener) {
       MessageProducer producer = null;
-      try (final CloseableTickerEventListener tickerEventListener = CloseableTickerEventListener.blackHole()) {
+      try (final CloseableTickerEventListener tickerEventListener = eventListener) {
          producer = session.createProducer(destination);
          producer.setDisableMessageTimestamp(true);
          switch (conf.delivery) {

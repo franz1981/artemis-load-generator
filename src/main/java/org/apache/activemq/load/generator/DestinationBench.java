@@ -206,6 +206,9 @@ public class DestinationBench {
             //force a shared connection
             shareConnection = true;
          }
+         if (forks > 1 && sampleMode == SampleMode.LossLess) {
+            throw new IllegalArgumentException("forks are not supported with LossLess sample mode!");
+         }
          //refresh messages
          messages = ((iterations * runs) + warmupIterations);
          if (askedForHelp) {
@@ -268,10 +271,17 @@ public class DestinationBench {
       final Thread[] producerRunners = new Thread[conf.forks];
       final JmsMessageHistogramLatencyRecorder.BenchmarkResult[] results = new JmsMessageHistogramLatencyRecorder.BenchmarkResult[conf.forks];
       final CountDownLatch consumersReady = conf.consumer ? new CountDownLatch(conf.forks) : null;
+      //to coordinate the producers on each run to wait until a run is completed: it can work only if there is a consumer able to consume it and that knows the bench config
+      final CountDownLatch[] runFinished = conf.sampleMode == SampleMode.Percentile && conf.consumer ? new CountDownLatch[conf.runs + 1] : null;
+      if (runFinished != null) {
+         for (int i = 0; i < runFinished.length; i++) {
+            runFinished[i] = new CountDownLatch(conf.forks);
+         }
+      }
       for (int i = 0; i < conf.forks; i++) {
          final int forkIndex = i;
          producerRunners[i] = new Thread(() -> {
-            runFork(conf, forkIndex, results, consumersReady, sentMessages[forkIndex], receivedMessages[forkIndex]);
+            runFork(conf, forkIndex, results, consumersReady, sentMessages[forkIndex], receivedMessages[forkIndex], runFinished);
          });
       }
       //start the forks
@@ -305,8 +315,27 @@ public class DestinationBench {
                                JmsMessageHistogramLatencyRecorder.BenchmarkResult[] results,
                                CountDownLatch consumersReady,
                                AtomicLong sentMessages,
-                               AtomicLong receivedMessages) {
+                               AtomicLong receivedMessages,
+                               CountDownLatch[] runFinished) {
       try {
+         final CloseableTickerEventListener eventListener = runFinished != null ? new CloseableTickerEventListener() {
+            @Override
+            public void onServiceTimeSample(int run, long time, long serviceTime) {
+
+            }
+
+            @Override
+            public void onFinishedRun(int run) {
+               try {
+                  //await all the consumers of a run to finish if not the last run in order to realease as soon as possible the resources
+                  if (run < conf.runs) {
+                     runFinished[run].await();
+                  }
+               } catch (InterruptedException e) {
+                  e.printStackTrace();
+               }
+            }
+         } : CloseableTickerEventListener.blackHole();
          final String forkedDestinationName;
          if (conf.forks > 1) {
             //parition the forks in order to distribute the destinations
@@ -339,8 +368,7 @@ public class DestinationBench {
          connection.start();
          try {
             if (conf.consumer) {
-               final CountDownLatch consumed = new CountDownLatch(1);
-               try (final CloseableMessageListener messageListener = CloseableMessageListeners.with(conf, onResult)) {
+               try (final CloseableMessageListener messageListener = CloseableMessageListeners.with(conf, runFinished, onResult)) {
                   final Connection consumerConnection;
                   if (!conf.shareConnection) {
                      //do not share the connection/connectionFactory (like in a different process)
@@ -354,7 +382,7 @@ public class DestinationBench {
                      consumerConnection = connection;
                   }
                   final Session consumerSession = consumerConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                  final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer@" + forkedDestinationName, consumerSession, destination, messageListener, Integer.MAX_VALUE, conf.messages, consumed, conf.blockingRead, conf.durableName, receivedMessages);
+                  final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer@" + forkedDestinationName, consumerSession, destination, messageListener, Integer.MAX_VALUE, conf.messages, conf.blockingRead, conf.durableName, receivedMessages);
                   try (final AgentRunner consumerRunner = new AgentRunner(new BusySpinIdleStrategy(), System.err::println, null, jmsConsumerAgent)) {
                      final Thread consumerThread = new Thread(() -> {
                         try (AffinityLock affinityLock = AffinityLock.acquireLock()) {
@@ -366,9 +394,9 @@ public class DestinationBench {
                      //start producers only when all the consumers are ready
                      consumersReady.await();
                      if (conf.producer) {
-                        ProducerRunner.runJmsProducer(conf, producerSession, destination, sentMessages);
+                        //run producer will synchronize with each consumers!!
+                        ProducerRunner.runJmsProducer(conf, producerSession, destination, sentMessages, eventListener);
                      }
-                     consumed.await();
                   } finally {
                      CloseableHelper.quietClose(consumerSession);
                      if (!conf.shareConnection) {
@@ -378,7 +406,7 @@ public class DestinationBench {
                }
             } else {
                if (conf.producer) {
-                  ProducerRunner.runJmsProducer(conf, producerSession, destination, sentMessages);
+                  ProducerRunner.runJmsProducer(conf, producerSession, destination, sentMessages, eventListener);
                }
             }
          } finally {

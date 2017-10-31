@@ -18,10 +18,9 @@
 package org.apache.activemq.load.generator;
 
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
 
 final class CloseableMessageListeners {
@@ -31,10 +30,15 @@ final class CloseableMessageListeners {
    }
 
    public static CloseableMessageListener with(DestinationBench.BenchmarkConfiguration conf,
+                                               CountDownLatch[] runFinished,
                                                Consumer<? super JmsMessageHistogramLatencyRecorder.BenchmarkResult> onResult) throws FileNotFoundException {
       final CloseableMessageListener messageListener;
       switch (conf.sampleMode) {
          case LossLess: {
+            //it makes sense only with single fork cases!
+            if (conf.forks > 1) {
+               throw new IllegalStateException(SampleMode.LossLess + " smapleMode doesn't support forked executions!");
+            }
             final long messages = conf.messages;
             final ByteBuffer consumerBuffer = ByteBuffer.allocate(conf.messageBytes).order(ByteOrder.nativeOrder());
             messageListener = new JmsMessageLossLessLatencyRecorder(conf.outputFile, conf.timeProvider, messages, consumerBuffer);
@@ -42,11 +46,7 @@ final class CloseableMessageListeners {
          break;
          case Percentile: {
             final ByteBuffer consumerBuffer = ByteBuffer.allocate(conf.messageBytes).order(ByteOrder.nativeOrder());
-            PrintStream log = null;
-            if (conf.outputFile != null) {
-               log = new PrintStream(new FileOutputStream(conf.outputFile));
-            }
-            messageListener = new JmsMessageHistogramLatencyRecorder(conf.timeProvider, conf.warmupIterations, conf.runs, conf.iterations, consumerBuffer, onResult);
+            messageListener = new JmsMessageHistogramLatencyRecorder(conf.timeProvider, conf.warmupIterations, conf.runs, conf.iterations, consumerBuffer, runFinished, onResult);
          }
          break;
          case None:

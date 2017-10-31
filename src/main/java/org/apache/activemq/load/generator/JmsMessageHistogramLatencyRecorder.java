@@ -21,7 +21,7 @@ import javax.jms.BytesMessage;
 import javax.jms.Message;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
-import java.util.Date;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -101,7 +101,7 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
                latencyHistogram.add(histogram);
                final long duration = histogram.getEndTimeStamp() - histogram.getStartTimeStamp();
                maxDuration = Math.max(maxDuration, duration);
-               System.out.println("[" + (f + 1) + "] - " + new Date(histogram.getStartTimeStamp()) + " - " + (r == 0 ? "warmup" : ("run " + r)) + " duration:\t" + duration + " ms");
+               //System.out.println("[" + (f + 1) + "] - " + new Date(histogram.getStartTimeStamp()) + " - " + (r == 0 ? "warmup" : ("run " + r)) + " duration:\t" + duration + " ms");
             }
             System.out.println((r == 0 ? "WARMUP" : ("RUN " + r)) + " MAX DURATION: " + maxDuration + " ms");
             producerThroughputs[r] = producerThroughput;
@@ -225,12 +225,14 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
    private int currentRun;
    private double outputValueUnitScalingRatio;
    private final Consumer<? super BenchmarkResult> onResult;
+   private CountDownLatch[] runFinished;
 
    public JmsMessageHistogramLatencyRecorder(TimeProvider timeProvider,
                                              int warmup,
                                              int runs,
                                              int iterations,
                                              ByteBuffer heapContentBuffer,
+                                             CountDownLatch[] runFinished,
                                              Consumer<? super BenchmarkResult> onResult) {
       this.onResult = onResult;
       final double outputValueUnitScalingRatio;
@@ -256,6 +258,7 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
       if (!contentBuffer.hasArray()) {
          throw new IllegalArgumentException("content buffer must be on heap and writable!");
       }
+      this.runFinished = runFinished;
    }
 
    @Override
@@ -263,6 +266,7 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
       final long startTime = BytesMessageUtil.decodeTimestamp((BytesMessage) message, contentBuffer);
       //the first message arrived need to mark the current run
       if (!this.runStatistics[currentRun].onMessage(startTime)) {
+         this.runFinished[currentRun].countDown();
          currentRun++;
       }
    }
