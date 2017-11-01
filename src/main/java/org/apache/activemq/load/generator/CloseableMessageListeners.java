@@ -21,6 +21,7 @@ import java.io.FileNotFoundException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.function.Consumer;
 
 final class CloseableMessageListeners {
@@ -30,7 +31,7 @@ final class CloseableMessageListeners {
    }
 
    public static CloseableMessageListener with(DestinationBench.BenchmarkConfiguration conf,
-                                               CountDownLatch[] runFinished,
+                                               CyclicBarrier runFinished,
                                                Consumer<? super JmsMessageHistogramLatencyRecorder.BenchmarkResult> onResult) throws FileNotFoundException {
       final CloseableMessageListener messageListener;
       switch (conf.sampleMode) {

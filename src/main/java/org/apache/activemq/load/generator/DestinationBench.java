@@ -27,7 +27,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.util.Arrays;
+import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
@@ -272,12 +274,7 @@ public class DestinationBench {
       final JmsMessageHistogramLatencyRecorder.BenchmarkResult[] results = new JmsMessageHistogramLatencyRecorder.BenchmarkResult[conf.forks];
       final CountDownLatch consumersReady = conf.consumer ? new CountDownLatch(conf.forks) : null;
       //to coordinate the producers on each run to wait until a run is completed: it can work only if there is a consumer able to consume it and that knows the bench config
-      final CountDownLatch[] runFinished = conf.sampleMode == SampleMode.Percentile && conf.consumer ? new CountDownLatch[conf.runs + 1] : null;
-      if (runFinished != null) {
-         for (int i = 0; i < runFinished.length; i++) {
-            runFinished[i] = new CountDownLatch(conf.forks);
-         }
-      }
+      final CyclicBarrier runFinished = conf.sampleMode == SampleMode.Percentile && conf.consumer ? new CyclicBarrier(conf.forks * (conf.producer ? 2 : 1), () -> System.out.println("RUN FINISHED: START YOUR ENGINES!")) : null;
       for (int i = 0; i < conf.forks; i++) {
          final int forkIndex = i;
          producerRunners[i] = new Thread(() -> {
@@ -316,7 +313,7 @@ public class DestinationBench {
                                CountDownLatch consumersReady,
                                AtomicLong sentMessages,
                                AtomicLong receivedMessages,
-                               CountDownLatch[] runFinished) {
+                               CyclicBarrier runFinished) {
       try {
          final CloseableTickerEventListener eventListener = runFinished != null ? new CloseableTickerEventListener() {
             @Override
@@ -327,11 +324,11 @@ public class DestinationBench {
             @Override
             public void onFinishedRun(int run) {
                try {
-                  //await all the consumers of a run to finish if not the last run in order to realease as soon as possible the resources
+                  //await all the consumers e producers of the run to finish
                   if (run < conf.runs) {
-                     runFinished[run].await();
+                     runFinished.await();
                   }
-               } catch (InterruptedException e) {
+               } catch (BrokenBarrierException | InterruptedException e) {
                   e.printStackTrace();
                }
             }

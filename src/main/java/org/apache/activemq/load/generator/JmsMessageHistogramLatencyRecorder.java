@@ -21,7 +21,8 @@ import javax.jms.BytesMessage;
 import javax.jms.Message;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.BrokenBarrierException;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -225,14 +226,14 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
    private int currentRun;
    private double outputValueUnitScalingRatio;
    private final Consumer<? super BenchmarkResult> onResult;
-   private CountDownLatch[] runFinished;
+   private CyclicBarrier runFinished;
 
    public JmsMessageHistogramLatencyRecorder(TimeProvider timeProvider,
                                              int warmup,
                                              int runs,
                                              int iterations,
                                              ByteBuffer heapContentBuffer,
-                                             CountDownLatch[] runFinished,
+                                             CyclicBarrier runFinished,
                                              Consumer<? super BenchmarkResult> onResult) {
       this.onResult = onResult;
       final double outputValueUnitScalingRatio;
@@ -266,7 +267,14 @@ final class JmsMessageHistogramLatencyRecorder implements CloseableMessageListen
       final long startTime = BytesMessageUtil.decodeTimestamp((BytesMessage) message, contentBuffer);
       //the first message arrived need to mark the current run
       if (!this.runStatistics[currentRun].onMessage(startTime)) {
-         this.runFinished[currentRun].countDown();
+         //await the others consumers into the run too!
+         try {
+            if (currentRun < (this.runStatistics.length - 1)) {
+               this.runFinished.await();
+            }
+         } catch (BrokenBarrierException | InterruptedException e) {
+            e.printStackTrace();
+         }
          currentRun++;
       }
    }
