@@ -18,6 +18,7 @@
 package org.apache.activemq.load.generator;
 
 import javax.jms.BytesMessage;
+import javax.jms.Connection;
 import javax.jms.Destination;
 import javax.jms.JMSException;
 import javax.jms.Message;
@@ -40,6 +41,7 @@ final class ConsumerLatencyRecorderTask implements Runnable {
    private final Destination destination;
    private final AtomicLong receivedMessages;
    private final Session session;
+   private final Connection connection;
    private final Histogram[] latencyHistograms;
    private final CyclicBarrier onMessagesConsumed;
    private final AtomicLong messagesConsumed;
@@ -55,6 +57,7 @@ final class ConsumerLatencyRecorderTask implements Runnable {
                                final long expectedMessagesPerRun,
                                final DestinationBench.BenchmarkConfiguration conf,
                                final Session session,
+                               final Connection connection,
                                final Destination destination,
                                final AtomicLong receivedMessages,
                                final Histogram[] latencyHistograms) {
@@ -66,6 +69,7 @@ final class ConsumerLatencyRecorderTask implements Runnable {
       this.expectedMessagesPerWarmup = expectedMessagesPerWarmup;
       this.conf = conf;
       this.session = session;
+      this.connection = connection;
       this.destination = destination;
       this.receivedMessages = receivedMessages;
       this.latencyHistograms = latencyHistograms;
@@ -126,6 +130,10 @@ final class ConsumerLatencyRecorderTask implements Runnable {
 
       {
          CloseableHelper.quietClose(consumer);
+         CloseableHelper.quietClose(session);
+         if (!conf.shareConnection) {
+            CloseableHelper.quietClose(connection);
+         }
       }
 
    }
