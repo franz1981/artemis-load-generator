@@ -312,11 +312,14 @@ public class DestinationBench {
             }
             if (conf.isTopic) {
                destinations[destinationIndex] = conf.protocol.createTopic(forkedDestinationName);
-               System.out.println("created topic " + forkedDestinationName);
             } else {
                destinations[destinationIndex] = conf.protocol.createQueue(forkedDestinationName);
-               System.out.println("created queue " + forkedDestinationName);
             }
+         }
+         if (destinations.length == 1) {
+            System.out.println("created " + (conf.isTopic ? "topic " : "queue ") + destinations[0]);
+         } else {
+            System.out.println("created " + (conf.isTopic ? "topic " : "queue ") + destinations[0] + " -> " + destinations[destinations.length - 1]);
          }
          return destinations;
       } else {
