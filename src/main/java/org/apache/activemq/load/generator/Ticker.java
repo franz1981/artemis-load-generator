@@ -20,9 +20,6 @@ package org.apache.activemq.load.generator;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 
-import net.openhft.affinity.Affinity;
-import net.openhft.affinity.AffinityLock;
-
 final class Ticker implements Runnable {
 
    private final int targetThroughput;
@@ -104,13 +101,11 @@ final class Ticker implements Runnable {
 
    @Override
    public void run() {
-      try (AffinityLock lock = Affinity.acquireLock()) {
-         final boolean rulMode = targetThroughput > 0;
-         if (rulMode) {
-            runRul();
-         } else {
-            runThroughput();
-         }
+      final boolean rulMode = targetThroughput > 0;
+      if (rulMode) {
+         runRul();
+      } else {
+         runThroughput();
       }
    }
 
@@ -154,8 +149,8 @@ final class Ticker implements Runnable {
       final int warmupIterations = this.warmupIterations;
       final TickerEventListener tickerEventListener = this.tickerEventListener;
       final ServiceAction service = this.service;
-      final long startTest = System.nanoTime();
       tickerEventListener.onStartedRun(0);
+      final long startTest = System.nanoTime();
       for (int i = 0; i < warmupIterations; i++) {
          final long startServiceTime = System.nanoTime();
          rul(service, tickerEventListener, 0, startServiceTime, startServiceTime);

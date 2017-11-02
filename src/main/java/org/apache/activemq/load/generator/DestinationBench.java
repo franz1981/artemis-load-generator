@@ -27,18 +27,15 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.util.Arrays;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.BrokenBarrierException;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-import net.openhft.affinity.AffinityLock;
-import org.agrona.concurrent.Agent;
-import org.agrona.concurrent.AgentRunner;
-import org.agrona.concurrent.BusySpinIdleStrategy;
+import org.HdrHistogram.Histogram;
 
 public class DestinationBench {
 
@@ -88,21 +85,16 @@ public class DestinationBench {
       int warmupIterations = 20_000;
       int iterations = 20_000;
       //1 queue for each 1 producer/consumer pairs
-      int partitions = -1;
+      int destinations = -1;
       int waitSecondsBetweenIterations = 2;
       String destinationName = null;
-      SampleMode sampleMode = SampleMode.Percentile;
       OutputFormat latencyFormat = OutputFormat.LONG;
       String url = null;
-      TimeProvider timeProvider = TimeProvider.Nano;
       Delivery delivery = Delivery.NonPersistent;
       boolean isTopic = false;
       boolean isTemp = false;
       Protocol protocol = Protocol.artemis;
-      boolean producer = true;
-      boolean consumer = true;
       boolean shareConnection = false;
-      boolean blockingRead = true;
       String durableName = null;
       int forks = 1;
       long messages = ((iterations * runs) + warmupIterations);
@@ -116,14 +108,8 @@ public class DestinationBench {
                case "--share-connection":
                   shareConnection = true;
                   break;
-               case "--no-producer":
-                  producer = false;
-                  break;
                case "--refresh":
                   refresh = true;
-                  break;
-               case "--no-consumer":
-                  consumer = false;
                   break;
                case "--protocol":
                   protocol = Protocol.valueOf(args[++i]);
@@ -137,14 +123,11 @@ public class DestinationBench {
                case "--url":
                   url = args[++i];
                   break;
-               case "--partitions":
-                  partitions = Integer.parseInt(args[++i]);
+               case "--destinations":
+                  destinations = Integer.parseInt(args[++i]);
                   break;
                case "--out":
                   outputFile = new File(args[++i]);
-                  break;
-               case "--sample":
-                  sampleMode = SampleMode.valueOf(args[++i]);
                   break;
                case "--format":
                   latencyFormat = OutputFormat.valueOf(args[++i]);
@@ -167,9 +150,6 @@ public class DestinationBench {
                case "--target":
                   targetThoughput = Integer.parseInt(args[++i]);
                   break;
-               case "--non-blocking-read":
-                  blockingRead = false;
-                  break;
                case "--runs":
                   runs = Integer.parseInt(args[++i]);
                   break;
@@ -181,9 +161,6 @@ public class DestinationBench {
                   break;
                case "--name":
                   destinationName = args[++i];
-                  break;
-               case "--time":
-                  timeProvider = TimeProvider.valueOf(args[++i]);
                   break;
                case "--durable":
                   durableName = args[++i];
@@ -198,21 +175,24 @@ public class DestinationBench {
                   throw new AssertionError("Invalid args: " + args[i] + " try --help");
             }
          }
-         if (partitions <= 0) {
-            partitions = forks;
+         if (destinations <= 0) {
+            destinations = forks;
+         }
+         if (forks % destinations != 0) {
+            throw new IllegalArgumentException("please specify a number of forks multiple of destinations");
+         }
+         if (forks != destinations && isTopic) {
+            throw new UnsupportedOperationException("right now topics are not supported yet for asymmetric scale benchmarks");
          }
          //force shared connection to be true when temp queues/topics
          if (isTemp) {
             //force a shared connection
             shareConnection = true;
          }
-         if (forks > 1 && sampleMode == SampleMode.LossLess) {
-            throw new IllegalArgumentException("forks are not supported with LossLess sample mode!");
-         }
          //refresh messages
          messages = ((iterations * runs) + warmupIterations);
          if (askedForHelp) {
-            final String validArgs = "\"[--protocol " + Arrays.toString(Protocol.values()) + "][--topic] [--wait-rate] [--persistent] [--time Nano|Millis] [--sample " + Arrays.toString(SampleMode.values()) + "] [--out outputFile] [--url url] [--name destinationName] [--target targetThroughput] [--runs runs] " + "[--iterations iterations] [--warmup warmupIterations] [--bytes messageBytes] [--wait waitSecondsBetweenIterations] [--forks numberOfForks] [--partitions numberOfDestinations] [--refresh]\"";
+            final String validArgs = "\"[--protocol " + Arrays.toString(Protocol.values()) + "][--topic] [--wait-rate] [--persistent] [--time Nano|Millis] [--out outputFile] [--url url] [--name destinationName] [--target targetThroughput] [--runs runs] " + "[--iterations iterations] [--warmup warmupIterations] [--bytes messageBytes] [--wait waitSecondsBetweenIterations] [--forks numberOfForks] [--destinations numberOfDestinations] [--refresh]\"";
             System.err.println("valid arguments = " + validArgs);
             return false;
          }
@@ -223,7 +203,6 @@ public class DestinationBench {
          System.out.println("*********\tCONFIGURATION SUMMARY\t*********");
          System.out.println("protocol = " + protocol);
          System.out.println("delivery = " + delivery);
-         System.out.println("consumer sample mode: " + sampleMode);
          if (outputFile != null) {
             System.out.println("consumer statistics file = " + outputFile);
          }
@@ -242,13 +221,6 @@ public class DestinationBench {
          System.out.println("warmupIterations = " + warmupIterations);
          System.out.println("iterations = " + iterations);
          System.out.println("share connection = " + shareConnection);
-         if (consumer) {
-            if (!blockingRead) {
-               System.out.println("MessageConsumer::receiveNoWait");
-            } else {
-               System.out.println("MessageConsumer::receive");
-            }
-         }
          System.out.println("*********\tEND CONFIGURATION SUMMARY\t*********");
       }
    }
@@ -261,6 +233,10 @@ public class DestinationBench {
       conf.printSummary();
       final AtomicLong[] sentMessages = new AtomicLong[conf.forks];
       final AtomicLong[] receivedMessages = new AtomicLong[conf.forks];
+      final AtomicLong[] receivedMessagesPerDestination = new AtomicLong[conf.destinations];
+      for (int i = 0; i < receivedMessagesPerDestination.length; i++) {
+         receivedMessagesPerDestination[i] = new AtomicLong(0);
+      }
       //initialize perf counters
       for (int i = 0; i < conf.forks; i++) {
          sentMessages[i] = new AtomicLong(0);
@@ -269,23 +245,44 @@ public class DestinationBench {
       final Thread reportingThread = createReportingThreadOf(sentMessages, receivedMessages, conf.refresh);
       reportingThread.start();
       final Thread[] producerRunners = new Thread[conf.forks];
-      final JmsMessageHistogramLatencyRecorder.BenchmarkResult[] results = new JmsMessageHistogramLatencyRecorder.BenchmarkResult[conf.forks];
-      final CountDownLatch consumersReady = conf.consumer ? new CountDownLatch(conf.forks) : null;
-      //to coordinate the producers on each run to wait until a run is completed: it can work only if there is a consumer able to consume it and that knows the bench config
-      final CountDownLatch[] runFinished = conf.sampleMode == SampleMode.Percentile && conf.consumer ? new CountDownLatch[conf.runs + 1] : null;
-      if (runFinished != null) {
-         for (int i = 0; i < runFinished.length; i++) {
-            runFinished[i] = new CountDownLatch(conf.forks);
+      final Histogram[][] results = new Histogram[conf.runs + 1][conf.forks];
+      final long highestLatencyAccepted = TimeUnit.SECONDS.toNanos(10);
+      long estimatedFootprintInBytes = 0;
+      for (int f = 0; f < conf.forks; f++) {
+         for (int r = 0; r < conf.runs + 1; r++) {
+            final Histogram histogram = new Histogram(highestLatencyAccepted, 2);
+            estimatedFootprintInBytes += histogram.getEstimatedFootprintInBytes();
+            results[r][f] = histogram;
          }
       }
+      System.out.println("Instrumentation of latencies tooks " + estimatedFootprintInBytes + " bytes");
+      //to coordinate the producers on each run to wait until a run is completed: it can work only if there is a consumer able to consume it and that knows the bench config
+      final CyclicBarrier runStarted = new CyclicBarrier((conf.forks * 2) + 1);
+      final CyclicBarrier runFinished = new CyclicBarrier((conf.forks * 2) + 1);
+      //each consumer that consumes the last expected message await on this: the 1 is the additional controller
+      final CyclicBarrier messagesPerRunConsumed = new CyclicBarrier(conf.destinations + 1);
       for (int i = 0; i < conf.forks; i++) {
          final int forkIndex = i;
          producerRunners[i] = new Thread(() -> {
-            runFork(conf, forkIndex, results, consumersReady, sentMessages[forkIndex], receivedMessages[forkIndex], runFinished);
+            runFork(conf, forkIndex, results, sentMessages[forkIndex], receivedMessages[forkIndex], runStarted, runFinished, messagesPerRunConsumed, receivedMessagesPerDestination);
          });
       }
       //start the forks
       Stream.of(producerRunners).forEach(Thread::start);
+      final long[] end2endThroughput = measureEnd2EndThroughput(conf, runStarted, runFinished, messagesPerRunConsumed, receivedMessagesPerDestination);
+      reportingThread.interrupt();
+      reportingThread.join();
+      final Histogram[] systemHistograms = mergeHistograms(results, highestLatencyAccepted);
+      final PrintStream log;
+      if (conf.outputFile != null) {
+         log = new PrintStream(new FileOutputStream(conf.outputFile));
+      } else {
+         log = System.out;
+      }
+      printResults(log, conf.latencyFormat, systemHistograms, end2endThroughput);
+      if (conf.outputFile != null) {
+         log.close();
+      }
       //wait the forks to finish
       Stream.of(producerRunners).forEach(t -> {
          try {
@@ -294,60 +291,71 @@ public class DestinationBench {
             e.printStackTrace();
          }
       });
-      reportingThread.interrupt();
-      reportingThread.join();
-      //collect all the results
-      final JmsMessageHistogramLatencyRecorder.BenchmarkResult benchmarkResult = JmsMessageHistogramLatencyRecorder.BenchmarkResult.merge(results, conf.runs + 1);
-      final PrintStream log;
-      if (conf.outputFile != null) {
-         log = new PrintStream(new FileOutputStream(conf.outputFile));
-      } else {
-         log = System.out;
+   }
+
+   private static long[] measureEnd2EndThroughput(BenchmarkConfiguration conf,
+                                                  CyclicBarrier runStarted,
+                                                  CyclicBarrier runFinished,
+                                                  CyclicBarrier messagesPerRunConsumed,
+                                                  AtomicLong[] receivedMessagesPerDestination) throws BrokenBarrierException, InterruptedException {
+      final long[] end2endThroughput = new long[conf.runs + 1];
+      final long totalWarmupMessages = conf.warmupIterations * conf.forks;
+      final long totalRunMessages = conf.iterations * conf.forks;
+      //measure system throughput
+      //warmup
+      //it is safe to be do ONLY here (or right after runFinished.await();
+      for (AtomicLong receivedMessagePerDestination : receivedMessagesPerDestination) {
+         receivedMessagePerDestination.set(0);
       }
-      benchmarkResult.print(log, conf.latencyFormat);
-      if (conf.outputFile != null) {
-         log.close();
+      runStarted.await();
+      final long startWarmup = System.currentTimeMillis();
+      //it will pass when all the destination will consume their messages
+      messagesPerRunConsumed.await();
+      final long elapsedTimeWarmup = System.currentTimeMillis() - startWarmup;
+      end2endThroughput[0] = (1_000L * totalWarmupMessages) / elapsedTimeWarmup;
+      runFinished.await();
+      //runs
+      for (int r = 0; r < conf.runs; r++) {
+         //it is safe to be do ONLY here (or right after runFinished.await();
+         for (AtomicLong receivedMessagePerDestination : receivedMessagesPerDestination) {
+            receivedMessagePerDestination.set(0);
+         }
+         runStarted.await();
+         final long start = System.currentTimeMillis();
+         //it will pass when all the destination will consume their messages
+         messagesPerRunConsumed.await();
+         final long elapsedTime = System.currentTimeMillis() - start;
+         end2endThroughput[r + 1] = (1_000L * totalRunMessages) / elapsedTime;
+         runFinished.await();
       }
+      return end2endThroughput;
    }
 
    private static void runFork(BenchmarkConfiguration conf,
                                int forkIndex,
-                               JmsMessageHistogramLatencyRecorder.BenchmarkResult[] results,
-                               CountDownLatch consumersReady,
+                               Histogram[][] results,
                                AtomicLong sentMessages,
                                AtomicLong receivedMessages,
-                               CountDownLatch[] runFinished) {
+                               CyclicBarrier runStarted,
+                               CyclicBarrier runFinished,
+                               CyclicBarrier finishedMessagesOnDestination,
+                               AtomicLong[] messagesPerDestinations) {
       try {
-         final CloseableTickerEventListener eventListener = runFinished != null ? new CloseableTickerEventListener() {
-            @Override
-            public void onServiceTimeSample(int run, long time, long serviceTime) {
-
-            }
-
-            @Override
-            public void onFinishedRun(int run) {
-               try {
-                  //await all the consumers of a run to finish if not the last run in order to realease as soon as possible the resources
-                  if (run < conf.runs) {
-                     runFinished[run].await();
-                  }
-               } catch (InterruptedException e) {
-                  e.printStackTrace();
-               }
-            }
-         } : CloseableTickerEventListener.blackHole();
+         //this can work only because conf.forks % conf.destinations == 0 and with queues!
+         final long expectedMessagesPerDestinationOnWarmup = (conf.forks / conf.destinations) * conf.warmupIterations;
+         final long expectedMessagesPerDestinationOnRun = (conf.forks / conf.destinations) * conf.iterations;
          final String forkedDestinationName;
+         final int destinationIndex = forkIndex % conf.destinations;
+         final AtomicLong messagesPerDestination = messagesPerDestinations[destinationIndex];
          if (conf.forks > 1) {
             //parition the forks in order to distribute the destinations
-            final int nameIndex = forkIndex % conf.partitions;
-            forkedDestinationName = conf.destinationName + "_" + nameIndex;
+            forkedDestinationName = conf.destinationName + "_" + destinationIndex;
          } else {
             forkedDestinationName = conf.destinationName;
          }
-         final Consumer<? super JmsMessageHistogramLatencyRecorder.BenchmarkResult> onResult = result -> results[forkIndex] = result;
          final ConnectionFactory connectionFactory = conf.protocol.createConnectionFactory(conf.url);
-         final Connection connection = connectionFactory.createConnection();
-         final Session producerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+         final Connection producerConnection = connectionFactory.createConnection();
+         final Session producerSession = producerConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
          final Destination destination;
          if (!conf.isTemp) {
             if (conf.isTopic) {
@@ -363,55 +371,45 @@ public class DestinationBench {
             }
          }
          if (conf.shareConnection && conf.durableName != null) {
-            connection.setClientID(conf.durableName);
+            producerConnection.setClientID(conf.durableName);
          }
-         connection.start();
+         producerConnection.start();
+
+         final Connection consumerConnection;
+         if (!conf.shareConnection) {
+            //do not share the connection/connectionFactory (like in a different process)
+            final ConnectionFactory consumerConnectionFactory = conf.protocol.createConnectionFactory(conf.url);
+            consumerConnection = consumerConnectionFactory.createConnection();
+            if (conf.durableName != null) {
+               consumerConnection.setClientID(conf.durableName);
+            }
+            consumerConnection.start();
+         } else {
+            consumerConnection = producerConnection;
+         }
+         final Session consumerSession = consumerConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+         //that could be avoided!!
+         final Histogram[] latencyHistograms = new Histogram[conf.runs + 1];
+         for (int r = 0; r < conf.runs + 1; r++) {
+            latencyHistograms[r] = results[r][forkIndex];
+         }
          try {
-            if (conf.consumer) {
-               try (final CloseableMessageListener messageListener = CloseableMessageListeners.with(conf, runFinished, onResult)) {
-                  final Connection consumerConnection;
-                  if (!conf.shareConnection) {
-                     //do not share the connection/connectionFactory (like in a different process)
-                     final ConnectionFactory consumerConnectionFactory = conf.protocol.createConnectionFactory(conf.url);
-                     consumerConnection = consumerConnectionFactory.createConnection();
-                     if (conf.durableName != null) {
-                        consumerConnection.setClientID(conf.durableName);
-                     }
-                     consumerConnection.start();
-                  } else {
-                     consumerConnection = connection;
-                  }
-                  final Session consumerSession = consumerConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-                  final Agent jmsConsumerAgent = new JmsConsumerAgent("jms_message_consumer@" + forkedDestinationName, consumerSession, destination, messageListener, Integer.MAX_VALUE, conf.messages, conf.blockingRead, conf.durableName, receivedMessages);
-                  try (final AgentRunner consumerRunner = new AgentRunner(new BusySpinIdleStrategy(), System.err::println, null, jmsConsumerAgent)) {
-                     final Thread consumerThread = new Thread(() -> {
-                        try (AffinityLock affinityLock = AffinityLock.acquireLock()) {
-                           consumersReady.countDown();
-                           consumerRunner.run();
-                        }
-                     });
-                     consumerThread.start();
-                     //start producers only when all the consumers are ready
-                     consumersReady.await();
-                     if (conf.producer) {
-                        //run producer will synchronize with each consumers!!
-                        ProducerRunner.runJmsProducer(conf, producerSession, destination, sentMessages, eventListener);
-                     }
-                  } finally {
-                     CloseableHelper.quietClose(consumerSession);
-                     if (!conf.shareConnection) {
-                        CloseableHelper.quietClose(consumerConnection);
-                     }
-                  }
-               }
-            } else {
-               if (conf.producer) {
-                  ProducerRunner.runJmsProducer(conf, producerSession, destination, sentMessages, eventListener);
+            final Thread consumerRunner = new Thread(new ConsumerLatencyRecorderTask(runStarted, runFinished, finishedMessagesOnDestination, messagesPerDestination, expectedMessagesPerDestinationOnWarmup, expectedMessagesPerDestinationOnRun, conf, consumerSession, destination, receivedMessages, latencyHistograms));
+            consumerRunner.setName(forkedDestinationName);
+            consumerRunner.setDaemon(true);
+            consumerRunner.start();
+            try {
+               ProducerRunner.runJmsProducer(conf, producerSession, destination, sentMessages, eventListener(runStarted, runFinished));
+            } finally {
+               CloseableHelper.quietClose(producerSession);
+               if (!conf.shareConnection) {
+                  CloseableHelper.quietClose(producerConnection);
                }
             }
+            consumerRunner.join();
          } finally {
-            CloseableHelper.quietClose(producerSession);
-            CloseableHelper.quietClose(connection);
+            CloseableHelper.quietClose(consumerSession);
+            CloseableHelper.quietClose(consumerConnection);
          }
       } catch (Throwable t) {
          t.printStackTrace();
@@ -446,4 +444,64 @@ public class DestinationBench {
       }
    }
 
+   //Histogram[RUN][FORK]
+   private static Histogram[] mergeHistograms(Histogram[][] histograms, long maxTrackableLatency) {
+      final Histogram[] latencyHistograms = new Histogram[histograms.length];
+      for (int r = 0; r < histograms.length; r++) {
+         final Histogram latencyHistogram = new Histogram(2);
+         final Histogram[] runHistograms = histograms[r];
+         for (int f = 0; f < runHistograms.length; f++) {
+            latencyHistogram.add(runHistograms[f]);
+         }
+         latencyHistograms[r] = latencyHistogram;
+      }
+      return latencyHistograms;
+   }
+
+   private static CloseableTickerEventListener eventListener(CyclicBarrier runStarted, CyclicBarrier runFinished) {
+      return new CloseableTickerEventListener() {
+         @Override
+         public void onServiceTimeSample(int run, long time, long serviceTime) {
+
+         }
+
+         @Override
+         public void onFinishedRun(int run) {
+            try {
+               runFinished.await();
+            } catch (BrokenBarrierException | InterruptedException e) {
+               e.printStackTrace();
+            }
+         }
+
+         @Override
+         public void onStartedRun(int run) {
+            try {
+               runStarted.await();
+            } catch (BrokenBarrierException | InterruptedException e) {
+               e.printStackTrace();
+            }
+         }
+      };
+   }
+
+   private static void printResults(PrintStream log,
+                                    OutputFormat outputFormat,
+                                    Histogram[] latencyHistograms,
+                                    long[] endToEndThroughput) {
+      for (int i = 0; i < latencyHistograms.length; i++) {
+         log.println("**************");
+         if (i == 0) {
+            log.println("WARMUP");
+         } else {
+            log.println("RUN " + i);
+         }
+         log.println("**************");
+         log.println("EndToEnd Throughput: " + endToEndThroughput[i] + " ops/sec");
+         log.println("EndToEnd SERVICE-TIME Latencies distribution in " + TimeUnit.MICROSECONDS);
+         //ns->us
+         outputFormat.output(latencyHistograms[i], log, 1000d);
+      }
+
+   }
 }

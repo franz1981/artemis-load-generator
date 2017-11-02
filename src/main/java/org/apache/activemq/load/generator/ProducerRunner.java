@@ -54,37 +54,17 @@ final class ProducerRunner {
          final BytesMessage message = session.createBytesMessage();
          final ByteBuffer clientContent = ByteBuffer.allocate(conf.messageBytes).order(ByteOrder.nativeOrder());
          final Ticker ticker;
-         final Ticker.ServiceAction serviceAction;
          final MessageProducer localProducer = producer;
-         switch (conf.timeProvider) {
-            case Nano:
-               serviceAction = (intendedStartTime, startServiceTime) -> {
-                  try {
-                     message.clearBody();
-                     BytesMessageUtil.encodeTimestamp(message, clientContent, startServiceTime);
-                     localProducer.send(message);
-                     sentMessages.lazySet(sentMessages.get() + 1L);
-                  } catch (Throwable ex) {
-                     System.err.println(ex);
-                  }
-               };
-               break;
-            case Millis:
-               serviceAction = (intendedStartTime, startServiceTime) -> {
-                  try {
-                     final long startTime = System.currentTimeMillis();
-                     message.clearBody();
-                     BytesMessageUtil.encodeTimestamp(message, clientContent, startTime);
-                     localProducer.send(message);
-                     sentMessages.lazySet(sentMessages.get() + 1L);
-                  } catch (Throwable ex) {
-                     System.err.println(ex);
-                  }
-               };
-               break;
-            default:
-               throw new AssertionError("unsupported case!");
-         }
+         final Ticker.ServiceAction serviceAction = (intendedStartTime, startServiceTime) -> {
+            try {
+               message.clearBody();
+               BytesMessageUtil.encodeTimestamp(message, clientContent, startServiceTime);
+               localProducer.send(message);
+               sentMessages.lazySet(sentMessages.get() + 1L);
+            } catch (Throwable ex) {
+               System.err.println(ex);
+            }
+         };
          if (conf.targetThoughput > 0) {
             ticker = Ticker.responseUnderLoadBenchmark(serviceAction, tickerEventListener, conf.targetThoughput, conf.iterations, conf.runs, conf.warmupIterations, conf.waitSecondsBetweenIterations, conf.isWaitRate);
          } else {

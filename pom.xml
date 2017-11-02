@@ -30,7 +30,6 @@ under the License.
    <!-- Properties -->
    <properties>
       <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-      <openhft.affinity.version>3.0.6</openhft.affinity.version>
       <org.hdrhistogram.version>2.1.9</org.hdrhistogram.version>
       <openjdk.jmh.version>1.15</openjdk.jmh.version>
       <agrona.version>0.9.0</agrona.version>
@@ -50,25 +49,6 @@ under the License.
             <artifactId>maven-assembly-plugin</artifactId>
             <executions>
                <execution>
-                  <id>build-statistics-summary-generator</id>
-                  <configuration>
-                     <appendAssemblyId>false</appendAssemblyId>
-                     <archive>
-                        <manifest>
-                           <mainClass>org.apache.activemq.load.generator.StatisticsSummaryGenerator</mainClass>
-                        </manifest>
-                     </archive>
-                     <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                     </descriptorRefs>
-                     <finalName>statistics-summary-generator</finalName>
-                  </configuration>
-                  <phase>package</phase>
-                  <goals>
-                     <goal>single</goal>
-                  </goals>
-               </execution>
-               <execution>
                   <id>build-destination-bench</id>
                   <configuration>
                      <appendAssemblyId>false</appendAssemblyId>
@@ -81,82 +61,6 @@ under the License.
                         <descriptorRef>jar-with-dependencies</descriptorRef>
                      </descriptorRefs>
                      <finalName>destination-bench</finalName>
-                  </configuration>
-                  <phase>package</phase>
-                  <goals>
-                     <goal>single</goal>
-                  </goals>
-               </execution>
-               <execution>
-                  <id>build-flush-scale-latency-bench</id>
-                  <configuration>
-                     <appendAssemblyId>false</appendAssemblyId>
-                     <archive>
-                        <manifest>
-                           <mainClass>org.apache.activemq.load.generator.FlushScaleLatencyBench</mainClass>
-                        </manifest>
-                     </archive>
-                     <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                     </descriptorRefs>
-                     <finalName>flush-scale-latency-bench</finalName>
-                  </configuration>
-                  <phase>package</phase>
-                  <goals>
-                     <goal>single</goal>
-                  </goals>
-               </execution>
-               <execution>
-                  <id>build-histogram-generator</id>
-                  <configuration>
-                     <appendAssemblyId>false</appendAssemblyId>
-                     <archive>
-                        <manifest>
-                           <mainClass>org.apache.activemq.load.generator.HistogramGenerator</mainClass>
-                        </manifest>
-                     </archive>
-                     <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                     </descriptorRefs>
-                     <finalName>histogram-generator</finalName>
-                  </configuration>
-                  <phase>package</phase>
-                  <goals>
-                     <goal>single</goal>
-                  </goals>
-               </execution>
-               <execution>
-                  <id>single-writer-bench</id>
-                  <configuration>
-                     <appendAssemblyId>false</appendAssemblyId>
-                     <archive>
-                        <manifest>
-                           <mainClass>org.apache.activemq.load.generator.SingleWriterBatchingBenchmark</mainClass>
-                        </manifest>
-                     </archive>
-                     <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                     </descriptorRefs>
-                     <finalName>single-writer-bench</finalName>
-                  </configuration>
-                  <phase>package</phase>
-                  <goals>
-                     <goal>single</goal>
-                  </goals>
-               </execution>
-               <execution>
-                  <id>latency-text-writer</id>
-                  <configuration>
-                     <appendAssemblyId>false</appendAssemblyId>
-                     <archive>
-                        <manifest>
-                           <mainClass>org.apache.activemq.load.generator.LatencyRecordingTextWriter</mainClass>
-                        </manifest>
-                     </archive>
-                     <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                     </descriptorRefs>
-                     <finalName>latency-text-writer</finalName>
                   </configuration>
                   <phase>package</phase>
                   <goals>
@@ -178,11 +82,6 @@ under the License.
          <groupId>org.hdrhistogram</groupId>
          <artifactId>HdrHistogram</artifactId>
          <version>${org.hdrhistogram.version}</version>
-      </dependency>
-      <dependency>
-         <groupId>net.openhft</groupId>
-         <artifactId>affinity</artifactId>
-         <version>${openhft.affinity.version}</version>
       </dependency>
 
       <!-- ### Java Microbenchmark Harness -->
