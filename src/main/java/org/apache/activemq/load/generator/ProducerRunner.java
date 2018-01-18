@@ -51,13 +51,12 @@ final class ProducerRunner {
             default:
                throw new AssertionError("unsupported case!");
          }
-         final BytesMessage message = session.createBytesMessage();
          final ByteBuffer clientContent = ByteBuffer.allocate(conf.messageBytes).order(ByteOrder.nativeOrder());
          final Ticker ticker;
          final MessageProducer localProducer = producer;
          final Ticker.ServiceAction serviceAction = (intendedStartTime, startServiceTime) -> {
             try {
-               message.clearBody();
+               final BytesMessage message = session.createBytesMessage();
                BytesMessageUtil.encodeTimestamp(message, clientContent, startServiceTime);
                localProducer.send(message);
                sentMessages.lazySet(sentMessages.get() + 1L);

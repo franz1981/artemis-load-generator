@@ -18,6 +18,7 @@
 package org.apache.activemq.load.generator;
 
 import javax.jms.BytesMessage;
+import javax.jms.JMSException;
 import java.nio.ByteBuffer;
 
 public class BytesMessageUtil {
@@ -35,9 +36,12 @@ public class BytesMessageUtil {
 
    public static long decodeTimestamp(BytesMessage bytesMessage, ByteBuffer contentArrayBytes) {
       try {
-         bytesMessage.readBytes(contentArrayBytes.array());
-         return contentArrayBytes.getLong(MESSAGE_TIMESTAMP_OFFSET);
-      } catch (Exception e) {
+         final int readBytes = bytesMessage.readBytes(contentArrayBytes.array(), Long.BYTES);
+         if (readBytes == Long.BYTES || readBytes == -1) {
+            return contentArrayBytes.getLong(MESSAGE_TIMESTAMP_OFFSET);
+         }
+         throw new IllegalStateException("wrong benchmark message payload");
+      } catch (JMSException e) {
          throw new IllegalStateException(e);
       }
    }
