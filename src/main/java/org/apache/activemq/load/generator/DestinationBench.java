@@ -30,12 +30,15 @@ import java.util.Arrays;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
 import org.HdrHistogram.Histogram;
+import org.HdrHistogram.HistogramLogWriter;
+import org.HdrHistogram.SingleWriterRecorder;
 
 public class DestinationBench {
 
@@ -45,6 +48,53 @@ public class DestinationBench {
          total += number.get();
       }
       return total;
+   }
+
+   private static long getCurrentTimeMsecWithDelay(final long nextReportingTime) throws InterruptedException {
+      final long now = System.currentTimeMillis();
+      if (now < nextReportingTime)
+         Thread.sleep(nextReportingTime - now);
+      return now;
+   }
+
+   private static Thread createSamplingThreadOf(BenchmarkConfiguration config,
+                                                SingleWriterRecorder recorder,
+                                                AtomicBoolean stopRecording) {
+      final Thread samplingThread = new Thread(() -> {
+         try (PrintStream log = new PrintStream(new FileOutputStream(config.outputFile), false)) {
+            Histogram intervalHistogram = null;
+            HistogramLogWriter histogramLogWriter = new HistogramLogWriter(log);
+            histogramLogWriter.outputLogFormatVersion();
+            histogramLogWriter.outputLegend();
+            final long startTime = System.currentTimeMillis();
+            long now = startTime;
+            final long samplingIntervalMillis = config.samplingIntervalMillis;
+            long nextReportingTime = startTime + samplingIntervalMillis;
+            long intervalStartTimeMsec = 0;
+
+            while (!stopRecording.get()) {
+               now = getCurrentTimeMsecWithDelay(nextReportingTime);
+               if (now >= nextReportingTime) {
+                  // Get the latest interval histogram and give the recorder a fresh Histogram for the next interval
+                  intervalHistogram = recorder.getIntervalHistogram(intervalHistogram);
+                  while (now >= nextReportingTime) {
+                     nextReportingTime += samplingIntervalMillis;
+                  }
+                  // Use timestamps from file input for start/end of log intervals:
+                  intervalHistogram.setStartTimeStamp(intervalStartTimeMsec);
+                  intervalHistogram.setEndTimeStamp(now);
+                  intervalStartTimeMsec = now;
+                  if (intervalHistogram.getTotalCount() > 0) {
+                     histogramLogWriter.outputIntervalHistogram(intervalHistogram);
+                  }
+               }
+            }
+         } catch (Throwable e) {
+            e.printStackTrace();
+         }
+      });
+      samplingThread.setDaemon(true);
+      return samplingThread;
    }
 
    private static Thread createReportingThreadOf(AtomicLong[] sentMessages,
@@ -78,6 +128,7 @@ public class DestinationBench {
    public static final class BenchmarkConfiguration {
 
       File outputFile = null;
+      int samplingIntervalMillis = -1;
       boolean isWaitRate = false;
       int messageBytes = 100;
       int targetThoughput = 0;
@@ -105,6 +156,9 @@ public class DestinationBench {
          for (int i = 0; i < args.length; ++i) {
             final String arg = args[i];
             switch (arg) {
+               case "--interval":
+                  samplingIntervalMillis = Integer.parseInt(args[++i]);
+                  break;
                case "--share-connection":
                   shareConnection = true;
                   break;
@@ -178,6 +232,12 @@ public class DestinationBench {
          if (destinations <= 0) {
             destinations = forks;
          }
+         if (samplingIntervalMillis > 0 && destinations != 1 && forks != 1) {
+            throw new IllegalArgumentException("interval latency recording can't works with multiple forks");
+         }
+         if (samplingIntervalMillis > 0 && outputFile == null) {
+            throw new IllegalArgumentException("Please specify an output file if latency recording is enabled");
+         }
          if (forks % destinations != 0) {
             throw new IllegalArgumentException("please specify a number of forks multiple of destinations");
          }
@@ -221,6 +281,9 @@ public class DestinationBench {
          System.out.println("warmupIterations = " + warmupIterations);
          System.out.println("iterations = " + iterations);
          System.out.println("share connection = " + shareConnection);
+         if (samplingIntervalMillis > 0) {
+            System.out.println("sampling interval = " + samplingIntervalMillis + " ms");
+         }
          System.out.println("*********\tEND CONFIGURATION SUMMARY\t*********");
       }
    }
@@ -245,58 +308,84 @@ public class DestinationBench {
       final Thread reportingThread = createReportingThreadOf(sentMessages, receivedMessages, conf.refresh);
       reportingThread.start();
       final Thread[] producerRunners = new Thread[conf.forks];
-      final Histogram[][] results = new Histogram[conf.runs + 1][conf.forks];
-      final long highestLatencyAccepted = TimeUnit.SECONDS.toNanos(10);
-      long estimatedFootprintInBytes = 0;
-      for (int f = 0; f < conf.forks; f++) {
-         for (int r = 0; r < conf.runs + 1; r++) {
-            final Histogram histogram = new Histogram(highestLatencyAccepted, 2);
-            estimatedFootprintInBytes += histogram.getEstimatedFootprintInBytes();
-            results[r][f] = histogram;
+      final Histogram[][] results;
+      final SingleWriterRecorder latencyRecorder;
+      final long highestLatencyAccepted = TimeUnit.HOURS.toNanos(1);
+      final AtomicBoolean finishSampling;
+      final Thread samplingThreadOf;
+      if (conf.samplingIntervalMillis <= 0) {
+         samplingThreadOf = null;
+         latencyRecorder = null;
+         finishSampling = null;
+         results = new Histogram[conf.runs + 1][conf.forks];
+         long estimatedFootprintInBytes = 0;
+         for (int f = 0; f < conf.forks; f++) {
+            for (int r = 0; r < conf.runs + 1; r++) {
+               final Histogram histogram = new Histogram(highestLatencyAccepted, 2);
+               estimatedFootprintInBytes += histogram.getEstimatedFootprintInBytes();
+               results[r][f] = histogram;
+            }
          }
-      }
-      System.out.println("Instrumentation of latencies tooks " + estimatedFootprintInBytes + " bytes");
-      //to coordinate the producers on each run to wait until a run is completed: it can work only if there is a consumer able to consume it and that knows the bench config
-      final CyclicBarrier runStarted = new CyclicBarrier((conf.forks * 2) + 1);
-      final CyclicBarrier runFinished = new CyclicBarrier((conf.forks * 2) + 1);
-      //each consumer that consumes the last expected message await on this: the 1 is the additional controller
-      final CyclicBarrier messagesPerRunConsumed = new CyclicBarrier(conf.destinations + 1);
-      final ConnectionFactory connectionFactory = conf.protocol.createConnectionFactory(conf.url);
-      //create the not temporary destinations here avoiding concurrent tries to create them :)
-      final Destination[] destinations = createNotTempDestination(conf);
-      for (int i = 0; i < conf.forks; i++) {
-         final int forkIndex = i;
-         final Thread producerRunner = new Thread(() -> {
-            runFork(conf, connectionFactory, destinations, forkIndex, results, sentMessages[forkIndex], receivedMessages[forkIndex], runStarted, runFinished, messagesPerRunConsumed, receivedMessagesPerDestination);
-         });
-         producerRunner.setDaemon(true);
-         producerRunner.setName("producer_" + forkIndex);
-         producerRunners[i] = producerRunner;
-      }
-      //start the forks
-      Stream.of(producerRunners).forEach(Thread::start);
-      final long[] end2endThroughput = measureEnd2EndThroughput(conf, runStarted, runFinished, messagesPerRunConsumed, receivedMessagesPerDestination);
-      reportingThread.interrupt();
-      reportingThread.join();
-      final Histogram[] systemHistograms = mergeHistograms(results, highestLatencyAccepted);
-      final PrintStream log;
-      if (conf.outputFile != null) {
-         log = new PrintStream(new FileOutputStream(conf.outputFile));
+         System.out.println("Instrumentation of latencies tooks " + estimatedFootprintInBytes + " bytes");
       } else {
-         log = System.out;
+         results = null;
+         finishSampling = new AtomicBoolean();
+         latencyRecorder = new SingleWriterRecorder(highestLatencyAccepted, 2);
+         samplingThreadOf = createSamplingThreadOf(conf, latencyRecorder, finishSampling);
+         samplingThreadOf.start();
       }
-      printResults(log, conf.latencyFormat, systemHistograms, end2endThroughput);
-      if (conf.outputFile != null) {
-         log.close();
-      }
-      //wait the forks to finish
-      Stream.of(producerRunners).forEach(t -> {
-         try {
-            t.join();
-         } catch (InterruptedException e) {
-            e.printStackTrace();
+      try {
+         //to coordinate the producers on each run to wait until a run is completed: it can work only if there is a consumer able to consume it and that knows the bench config
+         final CyclicBarrier runStarted = new CyclicBarrier((conf.forks * 2) + 1);
+         final CyclicBarrier runFinished = new CyclicBarrier((conf.forks * 2) + 1);
+         //each consumer that consumes the last expected message await on this: the 1 is the additional controller
+         final CyclicBarrier messagesPerRunConsumed = new CyclicBarrier(conf.destinations + 1);
+         final ConnectionFactory connectionFactory = conf.protocol.createConnectionFactory(conf.url);
+         //create the not temporary destinations here avoiding concurrent tries to create them :)
+         final Destination[] destinations = createNotTempDestination(conf);
+         for (int i = 0; i < conf.forks; i++) {
+            final int forkIndex = i;
+            final Thread producerRunner = new Thread(() -> {
+               runFork(conf, connectionFactory, destinations, forkIndex, results, latencyRecorder, sentMessages[forkIndex], receivedMessages[forkIndex], runStarted, runFinished, messagesPerRunConsumed, receivedMessagesPerDestination);
+            });
+            producerRunner.setDaemon(true);
+            producerRunner.setName("producer_" + forkIndex);
+            producerRunners[i] = producerRunner;
          }
-      });
+         //start the forks
+         Stream.of(producerRunners).forEach(Thread::start);
+         final long[] end2endThroughput = measureEnd2EndThroughput(conf, runStarted, runFinished, messagesPerRunConsumed, receivedMessagesPerDestination);
+         reportingThread.interrupt();
+         reportingThread.join();
+         if (results != null) {
+            final Histogram[] systemHistograms = mergeHistograms(results);
+            final PrintStream log;
+            if (conf.outputFile != null) {
+               log = new PrintStream(new FileOutputStream(conf.outputFile));
+            } else {
+               log = System.out;
+            }
+            printResults(log, conf.latencyFormat, systemHistograms, end2endThroughput);
+            if (conf.outputFile != null) {
+               log.close();
+            }
+         } else {
+            printResults(System.out, conf.latencyFormat, null, end2endThroughput);
+         }
+         //wait the forks to finish
+         Stream.of(producerRunners).forEach(t -> {
+            try {
+               t.join();
+            } catch (InterruptedException e) {
+               e.printStackTrace();
+            }
+         });
+      } finally {
+         if (conf.samplingIntervalMillis > 0) {
+            finishSampling.set(true);
+            samplingThreadOf.join();
+         }
+      }
    }
 
    private static Destination[] createNotTempDestination(BenchmarkConfiguration conf) {
@@ -370,6 +459,7 @@ public class DestinationBench {
                                Destination[] destinations,
                                int forkIndex,
                                Histogram[][] results,
+                               SingleWriterRecorder latencyRecorder,
                                AtomicLong sentMessages,
                                AtomicLong receivedMessages,
                                CyclicBarrier runStarted,
@@ -413,11 +503,16 @@ public class DestinationBench {
          }
          final Session consumerSession = consumerConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
          //that could be avoided!!
-         final Histogram[] latencyHistograms = new Histogram[conf.runs + 1];
-         for (int r = 0; r < conf.runs + 1; r++) {
-            latencyHistograms[r] = results[r][forkIndex];
+         final Histogram[] latencyHistograms;
+         if (results != null) {
+            latencyHistograms = new Histogram[conf.runs + 1];
+            for (int r = 0; r < conf.runs + 1; r++) {
+               latencyHistograms[r] = results[r][forkIndex];
+            }
+         } else {
+            latencyHistograms = null;
          }
-         final Thread consumerRunner = new Thread(new ConsumerLatencyRecorderTask(runStarted, runFinished, finishedMessagesOnDestination, messagesPerDestination, expectedMessagesPerDestinationOnWarmup, expectedMessagesPerDestinationOnRun, conf, consumerSession, consumerConnection, destination, receivedMessages, latencyHistograms));
+         final Thread consumerRunner = new Thread(new ConsumerLatencyRecorderTask(runStarted, runFinished, finishedMessagesOnDestination, messagesPerDestination, expectedMessagesPerDestinationOnWarmup, expectedMessagesPerDestinationOnRun, conf, consumerSession, consumerConnection, destination, receivedMessages, latencyHistograms, latencyRecorder));
          consumerRunner.setName("consumer_" + forkIndex);
          consumerRunner.setDaemon(true);
          consumerRunner.start();
@@ -464,7 +559,7 @@ public class DestinationBench {
    }
 
    //Histogram[RUN][FORK]
-   private static Histogram[] mergeHistograms(Histogram[][] histograms, long maxTrackableLatency) {
+   private static Histogram[] mergeHistograms(Histogram[][] histograms) {
       final Histogram[] latencyHistograms = new Histogram[histograms.length];
       for (int r = 0; r < histograms.length; r++) {
          final Histogram latencyHistogram = new Histogram(2);
@@ -508,19 +603,21 @@ public class DestinationBench {
                                     OutputFormat outputFormat,
                                     Histogram[] latencyHistograms,
                                     long[] endToEndThroughput) {
-      for (int i = 0; i < latencyHistograms.length; i++) {
+
+      for (int i = 0; i < endToEndThroughput.length; i++) {
          log.println("**************");
          if (i == 0) {
-            log.println("WARMUP");
+            log.print("WARMUP\t");
          } else {
-            log.println("RUN " + i);
+            log.print("RUN " + i + '\t');
          }
-         log.println("**************");
          log.println("EndToEnd Throughput: " + endToEndThroughput[i] + " ops/sec");
-         log.println("EndToEnd SERVICE-TIME Latencies distribution in " + TimeUnit.MICROSECONDS);
-         //ns->us
-         outputFormat.output(latencyHistograms[i], log, 1000d);
+         log.println("**************");
+         if (latencyHistograms != null) {
+            log.println("EndToEnd SERVICE-TIME Latencies distribution in " + TimeUnit.MICROSECONDS);
+            //ns->us
+            outputFormat.output(latencyHistograms[i], log, 1000d);
+         }
       }
-
    }
 }

@@ -32,6 +32,7 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.HdrHistogram.Histogram;
+import org.HdrHistogram.SingleWriterRecorder;
 
 final class ConsumerLatencyRecorderTask implements Runnable {
 
@@ -47,6 +48,7 @@ final class ConsumerLatencyRecorderTask implements Runnable {
    private final AtomicLong messagesConsumed;
    private final long expectedMessagesPerWarmup;
    private final long expectedMessagesPerRun;
+   private final SingleWriterRecorder latencyRecorder;
    private static final long RECEIVE_TIMEOUT_MILLIS = 100L;
 
    ConsumerLatencyRecorderTask(final CyclicBarrier onStart,
@@ -60,7 +62,8 @@ final class ConsumerLatencyRecorderTask implements Runnable {
                                final Connection connection,
                                final Destination destination,
                                final AtomicLong receivedMessages,
-                               final Histogram[] latencyHistograms) {
+                               final Histogram[] latencyHistograms,
+                               final SingleWriterRecorder latencyRecorder) {
       this.onStart = onStart;
       this.onFinished = onFinished;
       this.onMessagesConsumed = onMessagesConsumed;
@@ -73,7 +76,8 @@ final class ConsumerLatencyRecorderTask implements Runnable {
       this.destination = destination;
       this.receivedMessages = receivedMessages;
       this.latencyHistograms = latencyHistograms;
-      if (this.latencyHistograms.length != (conf.runs + 1)) {
+      this.latencyRecorder = latencyRecorder;
+      if (this.latencyHistograms != null && this.latencyHistograms.length != (conf.runs + 1)) {
          throw new IllegalArgumentException("latencyHistograms must be " + (conf.runs + 1) + "!");
       }
    }
@@ -82,19 +86,22 @@ final class ConsumerLatencyRecorderTask implements Runnable {
    public void run() {
       final ByteBuffer contentBuffer = ByteBuffer.allocate(conf.messageBytes).order(ByteOrder.nativeOrder());
       MessageConsumer consumer = null;
+      final SingleWriterRecorder latencyRecorder = this.latencyRecorder;
       try {
          consumer = createConsumer();
          final int runs = conf.runs;
          long receivedMessages = 0;
-         for (Histogram histogram : latencyHistograms) {
-            histogram.reset();
+         if (latencyHistograms != null) {
+            for (Histogram histogram : latencyHistograms) {
+               histogram.reset();
+            }
          }
-         final Histogram warmupHistogram = latencyHistograms[0];
+         final Histogram warmupHistogram = latencyHistograms != null ? latencyHistograms[0] : null;
          onStart.await();
          while (messagesConsumed.get() != expectedMessagesPerWarmup) {
             final Message received = consumer.receive(RECEIVE_TIMEOUT_MILLIS);
             if (received != null) {
-               onReceivedMessage(received, contentBuffer, warmupHistogram);
+               onReceivedMessage(received, contentBuffer, warmupHistogram, latencyRecorder);
                receivedMessages++;
                this.receivedMessages.lazySet(receivedMessages);
                if (messagesConsumed.incrementAndGet() == expectedMessagesPerWarmup) {
@@ -105,12 +112,12 @@ final class ConsumerLatencyRecorderTask implements Runnable {
          }
          onFinished.await();
          for (int r = 0; r < runs; r++) {
-            final Histogram runHistogram = latencyHistograms[r + 1];
+            final Histogram runHistogram = latencyHistograms != null ? latencyHistograms[r + 1] : null;
             onStart.await();
             while (messagesConsumed.get() != expectedMessagesPerRun) {
                final Message received = consumer.receive(RECEIVE_TIMEOUT_MILLIS);
                if (received != null) {
-                  onReceivedMessage(received, contentBuffer, runHistogram);
+                  onReceivedMessage(received, contentBuffer, runHistogram, latencyRecorder);
                   receivedMessages++;
                   this.receivedMessages.lazySet(receivedMessages);
                   if (messagesConsumed.incrementAndGet() == expectedMessagesPerRun) {
@@ -138,13 +145,19 @@ final class ConsumerLatencyRecorderTask implements Runnable {
 
    }
 
-   private static void onReceivedMessage(Message message, ByteBuffer contentBuffer, Histogram histogram) {
+   private static void onReceivedMessage(Message message,
+                                         ByteBuffer contentBuffer,
+                                         Histogram histogram,
+                                         SingleWriterRecorder latencyRecorder) {
       final long receivedTime = System.nanoTime();
       final long startTime = BytesMessageUtil.decodeTimestamp((BytesMessage) message, contentBuffer);
-      final long highestTrackableValue = histogram.getHighestTrackableValue();
       final long elapsedTime = receivedTime - startTime;
-      final long normalizedElapsedTime = Math.min(highestTrackableValue, elapsedTime);
-      histogram.recordValue(normalizedElapsedTime);
+      if (histogram != null) {
+         histogram.recordValue(elapsedTime);
+      }
+      if (latencyRecorder != null) {
+         latencyRecorder.recordValue(elapsedTime);
+      }
    }
 
    private MessageConsumer createConsumer() throws JMSException {
