@@ -52,9 +52,10 @@ public class DestinationBench {
    }
 
    private static long getCurrentTimeMsecWithDelay(final long nextReportingTime) throws InterruptedException {
-      final long now = System.currentTimeMillis();
-      if (now < nextReportingTime)
+      long now = System.currentTimeMillis();
+      if (now < nextReportingTime) {
          Thread.sleep(nextReportingTime - now);
+      }
       return now;
    }
 
@@ -76,20 +77,14 @@ public class DestinationBench {
             histogramLogWriter.setBaseTime(reportingStartTime);
             final long samplingIntervalMillis = config.samplingIntervalMillis;
             long nextReportingTime = startTime + samplingIntervalMillis;
-            long intervalStartTimeMsec = now;
 
             while (!stopRecording.get()) {
                now = getCurrentTimeMsecWithDelay(nextReportingTime);
                if (now >= nextReportingTime) {
-                  // Get the latest interval histogram and give the recorder a fresh Histogram for the next interval
                   intervalHistogram = recorder.getIntervalHistogram(intervalHistogram);
                   while (now >= nextReportingTime) {
                      nextReportingTime += samplingIntervalMillis;
                   }
-                  // Use timestamps from file input for start/end of log intervals:
-                  intervalHistogram.setStartTimeStamp(intervalStartTimeMsec);
-                  intervalHistogram.setEndTimeStamp(now);
-                  intervalStartTimeMsec = now;
                   histogramLogWriter.outputIntervalHistogram(intervalHistogram);
                }
             }
