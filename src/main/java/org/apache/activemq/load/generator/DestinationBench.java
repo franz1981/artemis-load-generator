@@ -26,6 +26,7 @@ import javax.jms.Topic;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
+import java.lang.management.ManagementFactory;
 import java.util.Arrays;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
@@ -65,12 +66,17 @@ public class DestinationBench {
             Histogram intervalHistogram = null;
             HistogramLogWriter histogramLogWriter = new HistogramLogWriter(log);
             histogramLogWriter.outputLogFormatVersion();
-            histogramLogWriter.outputLegend();
             final long startTime = System.currentTimeMillis();
+            final long uptimeAtInitialStartTime = ManagementFactory.getRuntimeMXBean().getUptime();
             long now = startTime;
+            final long jvmStartTime = now - uptimeAtInitialStartTime;
+            final long reportingStartTime = jvmStartTime;
+            histogramLogWriter.outputStartTime(reportingStartTime);
+            histogramLogWriter.outputLegend();
+            histogramLogWriter.setBaseTime(reportingStartTime);
             final long samplingIntervalMillis = config.samplingIntervalMillis;
             long nextReportingTime = startTime + samplingIntervalMillis;
-            long intervalStartTimeMsec = 0;
+            long intervalStartTimeMsec = now;
 
             while (!stopRecording.get()) {
                now = getCurrentTimeMsecWithDelay(nextReportingTime);
@@ -84,9 +90,7 @@ public class DestinationBench {
                   intervalHistogram.setStartTimeStamp(intervalStartTimeMsec);
                   intervalHistogram.setEndTimeStamp(now);
                   intervalStartTimeMsec = now;
-                  if (intervalHistogram.getTotalCount() > 0) {
-                     histogramLogWriter.outputIntervalHistogram(intervalHistogram);
-                  }
+                  histogramLogWriter.outputIntervalHistogram(intervalHistogram);
                }
             }
          } catch (Throwable e) {
