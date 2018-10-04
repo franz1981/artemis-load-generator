@@ -115,7 +115,7 @@ under the License.
       <dependency>
          <groupId>org.apache.qpid</groupId>
          <artifactId>qpid-jms-client</artifactId>
-         <version>0.32.0</version>
+         <version>0.36.0</version>
       </dependency>
       <dependency>
          <groupId>junit</groupId>

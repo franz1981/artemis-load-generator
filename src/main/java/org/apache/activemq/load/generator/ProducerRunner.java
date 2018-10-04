@@ -57,7 +57,7 @@ final class ProducerRunner {
          final Ticker.ServiceAction serviceAction = (intendedStartTime, startServiceTime) -> {
             try {
                final BytesMessage message = session.createBytesMessage();
-               BytesMessageUtil.encodeTimestamp(message, clientContent, startServiceTime);
+               BytesMessageUtil.encodeTimestamp(message, clientContent, intendedStartTime);
                localProducer.send(message);
                sentMessages.lazySet(sentMessages.get() + 1L);
             } catch (Throwable ex) {

@@ -95,7 +95,9 @@ final class Ticker implements Runnable {
    }
 
    public static void spinWaitUntil(long deadline) {
-      while (deadline > System.nanoTime()) {
+      long waitTime;
+      while ((waitTime = (deadline - System.nanoTime())) > 0) {
+         LockSupport.parkNanos(waitTime);
       }
    }
 
